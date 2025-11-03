@@ -1,0 +1,15 @@
+# Example cron configuration for embassy-eye
+# 
+# To install this cron job:
+# 1. Edit this file with your actual paths
+# 2. Install it: crontab cron.example
+#
+# Or manually edit: crontab -e
+
+# Run embassy-eye every 10 minutes
+# Replace /path/to/embassy-eye with your actual project path
+*/10 * * * * /path/to/embassy-eye/run_docker.sh >> /path/to/embassy-eye/cron.log 2>&1
+
+# Alternative: Run with Python directly (requires venv setup)
+# */10 * * * * cd /path/to/embassy-eye && /path/to/embassy-eye/venv/bin/python fill_form.py >> /path/to/embassy-eye/cron.log 2>&1
+
