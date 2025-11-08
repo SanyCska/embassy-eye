@@ -7,7 +7,26 @@ This guide explains how to run the embassy-eye script every 10 minutes using cro
 1. **Docker and Docker Compose installed** (recommended)
    - Or Python 3.11+ with all dependencies installed
 
-2. **Environment file configured**
+2. **WireGuard VPN configured**
+   - VPN configuration file should be at `/etc/wireguard/rs-beg.conf`
+   - The script will automatically start VPN before running and shut it down after
+
+3. **Passwordless sudo for wg-quick** (required for cron)
+   - The script needs to run `sudo wg-quick up rs-beg` and `sudo wg-quick down rs-beg`
+   - Configure passwordless sudo by editing `/etc/sudoers`:
+     ```bash
+     sudo visudo
+     ```
+   - Add this line (replace `youruser` with your actual username):
+     ```
+     youruser ALL=(ALL) NOPASSWD: /usr/bin/wg-quick
+     ```
+   - Or more restrictively, only allow the specific VPN:
+     ```
+     youruser ALL=(ALL) NOPASSWD: /usr/bin/wg-quick up rs-beg, /usr/bin/wg-quick down rs-beg
+     ```
+
+4. **Environment file configured**
    - Make sure `.env` file exists with:
      ```
      TELEGRAM_BOT_TOKEN=your_bot_token_here
@@ -108,11 +127,15 @@ sudo journalctl -u cron -f
 
 ### Test the script manually
 ```bash
-# Test Docker version
+# Test Docker version (will start/stop VPN automatically)
 ./run_docker.sh
 
-# Test Python version
-python3 fill_form.py
+# Test Python version (will start/stop VPN automatically)
+./run_script.sh
+
+# Test VPN commands manually
+sudo wg-quick up rs-beg
+sudo wg-quick down rs-beg
 ```
 
 ### Common issues
@@ -122,18 +145,26 @@ python3 fill_form.py
    chmod +x run_docker.sh run_script.sh
    ```
 
-2. **Docker not found**: Make sure Docker is in PATH for cron
+2. **VPN fails to start (sudo password required)**: Configure passwordless sudo
+   - See "Prerequisites" section above for sudoers configuration
+   - Test manually: `sudo wg-quick up rs-beg` (should not ask for password)
+
+3. **VPN already running**: The script will handle this gracefully
+   - If VPN is already up, `wg-quick up` may return an error, but the script will continue
+   - The shutdown will still work correctly
+
+4. **Docker not found**: Make sure Docker is in PATH for cron
    - Add full path to docker: `/usr/bin/docker`
    - Or set PATH in cron job:
    ```cron
    */10 * * * * PATH=/usr/bin:/usr/local/bin:$PATH /path/to/run_docker.sh >> /path/to/cron.log 2>&1
    ```
 
-3. **Environment variables not loaded**: Cron runs with minimal environment
+5. **Environment variables not loaded**: Cron runs with minimal environment
    - Use absolute paths in cron jobs
    - Load .env file explicitly in the script (already done in wrapper scripts)
 
-4. **Docker Compose not found**: Use full path or alias
+6. **Docker Compose not found**: Use full path or alias
    ```cron
    */10 * * * * /usr/local/bin/docker-compose -f /path/to/docker-compose.yml run --rm embassy-eye >> /path/to/cron.log 2>&1
    ```
@@ -163,4 +194,5 @@ Create `/etc/logrotate.d/embassy-eye`:
 2. Don't commit `.env` to version control (already in `.gitignore`)
 
 3. Consider running as a dedicated user instead of root
+
 
