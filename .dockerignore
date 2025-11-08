@@ -1,18 +1,16 @@
-# Python
+# Docker ignore file to speed up builds
+# Files that don't need to be in the Docker image
+
+# Python cache
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
-*.egg-info/
-dist/
-build/
 
 # Virtual environments
-.env
-.venv
-env/
 venv/
+env/
 ENV/
 
 # IDE
@@ -20,9 +18,15 @@ ENV/
 .vscode/
 *.swp
 *.swo
-*~
 
-# Screenshots (not needed in container)
+# Logs
+*.log
+cron.log
+loop.log
+launchd.log
+launchd.error.log
+
+# Screenshots (don't need in image)
 screenshots/
 
 # Git
@@ -30,10 +34,20 @@ screenshots/
 .gitignore
 
 # Docker
+.docker_build_cache
+docker-compose.yml
 Dockerfile
-.dockerignore
 
-# OS
-.DS_Store
-Thumbs.db
+# Documentation
+*.md
+TROUBLESHOOTING.md
+CRON_SETUP.md
 
+# Scripts (not needed in container)
+*.sh
+com.*.plist
+cron.example
+
+# Environment files (loaded via env_file in docker-compose)
+.env
+env.example

@@ -1,6 +1,7 @@
 #!/bin/bash
 # Wrapper script to run embassy-eye with Docker
 # This script manages VPN connection and runs the embassy-eye script
+# Builds Docker image first (if needed, without VPN), then runs with VPN
 
 # Get the directory where this script is located
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -36,7 +37,23 @@ if [ -f .env ]; then
     export $(cat .env | grep -v '^#' | xargs)
 fi
 
-# Start VPN
+# Build Docker image first (without VPN - faster)
+# This checks if rebuild is needed and only builds if Dockerfile/requirements.txt changed
+echo "$(date): Checking if Docker image needs to be built..."
+if [ -f "build_docker.sh" ]; then
+    bash build_docker.sh
+    BUILD_EXIT=$?
+    if [ $BUILD_EXIT -ne 0 ]; then
+        echo "$(date): ERROR: Docker build failed, aborting"
+        exit $BUILD_EXIT
+    fi
+else
+    # Fallback: always build if build script doesn't exist
+    echo "$(date): build_docker.sh not found, building Docker image..."
+    docker-compose build
+fi
+
+# Start VPN (after build, before running)
 echo "$(date): Starting VPN ($VPN_NAME)..."
 $VPN_UP_CMD 2>&1
 VPN_UP_EXIT=$?
@@ -57,8 +74,8 @@ fi
 # Wait a moment for VPN to establish connection
 sleep 2
 
-# Run Docker container
-echo "$(date): Running embassy-eye..."
+# Run Docker container (with VPN active, device info randomizes on each run)
+echo "$(date): Running embassy-eye (device info will be randomized on each run)..."
 docker-compose run --rm embassy-eye
 
 EXIT_CODE=$?

@@ -211,3 +211,9 @@ screenshots/
 
 # Cron logs
 cron.log
+loop.log
+launchd.log
+launchd.error.log
+
+# Docker build cache
+.docker_build_cache

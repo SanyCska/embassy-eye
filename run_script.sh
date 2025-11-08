@@ -59,8 +59,23 @@ sleep 2
 
 # Check if Docker is available
 if command -v docker &> /dev/null; then
-    # Run with Docker
-    echo "$(date): Running embassy-eye with Docker..."
+    # Build Docker image first (if needed, without VPN - faster)
+    echo "$(date): Checking if Docker image needs to be built..."
+    if [ -f "build_docker.sh" ]; then
+        bash build_docker.sh
+        BUILD_EXIT=$?
+        if [ $BUILD_EXIT -ne 0 ]; then
+            echo "$(date): ERROR: Docker build failed, aborting"
+            exit $BUILD_EXIT
+        fi
+    else
+        # Fallback: always build if build script doesn't exist
+        echo "$(date): build_docker.sh not found, building Docker image..."
+        docker-compose build
+    fi
+    
+    # Run with Docker (device info randomizes on each run)
+    echo "$(date): Running embassy-eye with Docker (device info will be randomized)..."
     docker-compose run --rm embassy-eye
 else
     # Run directly with Python (requires Python environment setup)
