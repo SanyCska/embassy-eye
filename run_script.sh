@@ -11,6 +11,29 @@ VPN_NAME="rs-beg"
 VPN_UP_CMD="sudo wg-quick up $VPN_NAME"
 VPN_DOWN_CMD="sudo wg-quick down $VPN_NAME"
 
+# Function to start VPN
+start_vpn() {
+    echo "$(date): Starting VPN ($VPN_NAME)..."
+    $VPN_UP_CMD 2>&1
+    VPN_UP_EXIT=$?
+
+    if [ $VPN_UP_EXIT -ne 0 ]; then
+        # Check if VPN is already running
+        if sudo wg show "$VPN_NAME" &>/dev/null; then
+            echo "$(date): VPN is already running, continuing..."
+        else
+            echo "$(date): ERROR: Failed to start VPN (exit code $VPN_UP_EXIT)"
+            echo "$(date): Aborting script execution"
+            exit $VPN_UP_EXIT
+        fi
+    else
+        echo "$(date): VPN started successfully"
+    fi
+
+    # Wait a moment for VPN to establish connection
+    sleep 2
+}
+
 # Function to shut down VPN (called on exit)
 shutdown_vpn() {
     # Check if VPN is running before trying to shut it down
@@ -36,30 +59,9 @@ if [ -f .env ]; then
     export $(cat .env | grep -v '^#' | xargs)
 fi
 
-# Start VPN
-echo "$(date): Starting VPN ($VPN_NAME)..."
-$VPN_UP_CMD 2>&1
-VPN_UP_EXIT=$?
-
-if [ $VPN_UP_EXIT -ne 0 ]; then
-    # Check if VPN is already running
-    if sudo wg show "$VPN_NAME" &>/dev/null; then
-        echo "$(date): VPN is already running, continuing..."
-    else
-        echo "$(date): ERROR: Failed to start VPN (exit code $VPN_UP_EXIT)"
-        echo "$(date): Aborting script execution"
-        exit $VPN_UP_EXIT
-    fi
-else
-    echo "$(date): VPN started successfully"
-fi
-
-# Wait a moment for VPN to establish connection
-sleep 2
-
 # Check if Docker is available
 if command -v docker &> /dev/null; then
-    # Build Docker image first (if needed, without VPN - faster)
+    # Build Docker image first (if needed, WITHOUT VPN - faster)
     echo "$(date): Checking if Docker image needs to be built..."
     if [ -f "build_docker.sh" ]; then
         bash build_docker.sh
@@ -74,11 +76,17 @@ if command -v docker &> /dev/null; then
         docker-compose build
     fi
     
+    # Start VPN (AFTER build, BEFORE running container)
+    start_vpn
+    
     # Run with Docker (device info randomizes on each run)
     echo "$(date): Running embassy-eye with Docker (device info will be randomized)..."
     docker-compose run --rm embassy-eye
 else
     # Run directly with Python (requires Python environment setup)
+    # For Python, VPN is needed before running
+    start_vpn
+    
     echo "$(date): Running embassy-eye with Python..."
     python3 fill_form.py
 fi

@@ -37,7 +37,7 @@ This guide explains how to run the embassy-eye script every 10 minutes using cro
 
 ### Step 1: Make the wrapper script executable
 ```bash
-chmod +x run_docker.sh
+chmod +x run_script.sh
 ```
 
 ### Step 2: Edit crontab
@@ -48,13 +48,15 @@ crontab -e
 ### Step 3: Add the cron job
 Add this line to run every 10 minutes:
 ```cron
-*/10 * * * * /full/path/to/embassy-eye/run_docker.sh >> /full/path/to/embassy-eye/cron.log 2>&1
+*/10 * * * * /full/path/to/embassy-eye/run_script.sh >> /full/path/to/embassy-eye/cron.log 2>&1
 ```
 
 **Example with absolute path:**
 ```cron
-*/10 * * * * /home/user/embassy-eye/run_docker.sh >> /home/user/embassy-eye/cron.log 2>&1
+*/10 * * * * /home/user/embassy-eye/run_script.sh >> /home/user/embassy-eye/cron.log 2>&1
 ```
+
+**Note**: `run_script.sh` automatically uses Docker if available, or falls back to Python if Docker is not installed.
 
 ### Step 4: Verify cron is running
 ```bash
@@ -127,10 +129,8 @@ sudo journalctl -u cron -f
 
 ### Test the script manually
 ```bash
-# Test Docker version (will start/stop VPN automatically)
-./run_docker.sh
-
-# Test Python version (will start/stop VPN automatically)
+# Test the script (will use Docker if available, Python otherwise)
+# VPN will start/stop automatically
 ./run_script.sh
 
 # Test VPN commands manually
@@ -142,7 +142,7 @@ sudo wg-quick down rs-beg
 
 1. **Permission denied**: Make sure scripts are executable
    ```bash
-   chmod +x run_docker.sh run_script.sh
+   chmod +x run_script.sh
    ```
 
 2. **VPN fails to start (sudo password required)**: Configure passwordless sudo
@@ -157,7 +157,7 @@ sudo wg-quick down rs-beg
    - Add full path to docker: `/usr/bin/docker`
    - Or set PATH in cron job:
    ```cron
-   */10 * * * * PATH=/usr/bin:/usr/local/bin:$PATH /path/to/run_docker.sh >> /path/to/cron.log 2>&1
+   */10 * * * * PATH=/usr/bin:/usr/local/bin:$PATH /path/to/run_script.sh >> /path/to/cron.log 2>&1
    ```
 
 5. **Environment variables not loaded**: Cron runs with minimal environment
