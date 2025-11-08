@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.embassy-eye</string>
+    
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/alex/projects/other/embassy-eye/run_script.sh</string>
+    </array>
+    
+    <key>WorkingDirectory</key>
+    <string>/Users/alex/projects/other/embassy-eye</string>
+    
+    <key>StartInterval</key>
+    <integer>600</integer>
+    <!-- Run every 600 seconds (10 minutes) -->
+    
+    <key>StandardOutPath</key>
+    <string>/Users/alex/projects/other/embassy-eye/launchd.log</string>
+    
+    <key>StandardErrorPath</key>
+    <string>/Users/alex/projects/other/embassy-eye/launchd.error.log</string>
+    
+    <key>RunAtLoad</key>
+    <false/>
+    <!-- Set to true if you want it to run immediately when loaded -->
+</dict>
+</plist>
+

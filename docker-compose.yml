@@ -4,6 +4,9 @@ services:
   embassy-eye:
     build: .
     container_name: embassy-eye
+    # IMPORTANT: Uncomment the line below if your VPN is running on the host
+    # This allows the container to use the host's VPN connection
+    network_mode: "host"
     environment:
       # Telegram configuration - set these in .env file or override here
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}

@@ -147,12 +147,18 @@ def create_driver(headless=False):
     
     Each run uses a randomly generated device profile to avoid fingerprinting.
     """
+    print("  Generating random device profile...")
+    sys.stdout.flush()
     # Generate a random device profile for this session
     profile = get_random_device_profile()
+    print(f"  Using user agent: {profile['user_agent'][:50]}...")
+    sys.stdout.flush()
     
     if UC_AVAILABLE:
         # Try undetected-chromedriver first, fall back to regular selenium on error
         try:
+            print("  Attempting to use undetected-chromedriver...")
+            sys.stdout.flush()
             # Use undetected-chromedriver for better anti-detection
             options = uc.ChromeOptions()
             if headless:
@@ -173,18 +179,25 @@ def create_driver(headless=False):
             # Use random window size from profile
             options.add_argument(f'--window-size={profile["width"]},{profile["height"]}')
             
+            print("  Creating Chrome driver instance...")
+            sys.stdout.flush()
             # Create driver with undetected_chromedriver (let it auto-detect version)
             driver = uc.Chrome(options=options, use_subprocess=True)
             
+            print("  Applying fingerprinting protection...")
+            sys.stdout.flush()
             # Apply comprehensive fingerprinting protection via CDP
             _apply_fingerprint_protection(driver, profile)
             
             return driver
         except Exception as e:
-            print(f"Warning: undetected-chromedriver failed ({e}), falling back to regular selenium with stealth")
+            print(f"  Warning: undetected-chromedriver failed ({e}), falling back to regular selenium with stealth")
+            sys.stdout.flush()
             # Fall through to regular selenium implementation
     
     # Fallback to regular selenium with manual anti-detection (used if UC not available or fails)
+    print("  Using regular Selenium WebDriver...")
+    sys.stdout.flush()
     options = webdriver.ChromeOptions()
     
     # Anti-detection arguments
@@ -205,8 +218,12 @@ def create_driver(headless=False):
     # Use random window size from profile
     options.add_argument(f'--window-size={profile["width"]},{profile["height"]}')
     
+    print("  Creating Chrome driver instance...")
+    sys.stdout.flush()
     driver = webdriver.Chrome(options=options)
     
+    print("  Applying fingerprinting protection...")
+    sys.stdout.flush()
     # Apply comprehensive fingerprinting protection via CDP
     _apply_fingerprint_protection(driver, profile)
     
