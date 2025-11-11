@@ -12,6 +12,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
 CAPTCHA_FAILURE_TEXT = "hcaptcha has to be checked"
+EMAIL_VERIFICATION_TEXT = "to proceed with your booking, you need to enter the code that is sent to the provided email address"
 CAPTCHA_LOG_PATH = Path("logs") / "captcha_failures.log"
 
 
@@ -23,6 +24,7 @@ def check_appointment_availability(driver):
     print("=== Checking for appointment availability ===")
     modal_found = False
     captcha_failure_detected = False
+    email_verification_required = False
     
     try:
         # Method 1: Check page source/text directly for the message
@@ -34,8 +36,10 @@ def check_appointment_availability(driver):
             print("  Found 'no appointments' text in page")
         if CAPTCHA_FAILURE_TEXT in page_text or CAPTCHA_FAILURE_TEXT in body_text:
             captcha_failure_detected = True
-            modal_found = True
-            print("  ⚠ hCaptcha modal detected in page text")
+            print("  ✓ hCaptcha modal detected - slots found but captcha required on site!")
+        if EMAIL_VERIFICATION_TEXT in page_text or EMAIL_VERIFICATION_TEXT in body_text:
+            email_verification_required = True
+            print("  ✓ Email verification modal detected - slots found!")
         
         # Method 2: Wait for and find the specific alert element with role="alert"
         alert_element = None
@@ -51,8 +55,10 @@ def check_appointment_availability(driver):
                     print("  ✓ Modal confirmed with 'no appointments' message")
                 if CAPTCHA_FAILURE_TEXT in alert_text:
                     captcha_failure_detected = True
-                    modal_found = True
-                    print("  ⚠ hCaptcha modal detected via alert element")
+                    print("  ✓ hCaptcha modal detected via alert element - slots found but captcha required on site!")
+                if EMAIL_VERIFICATION_TEXT in alert_text:
+                    email_verification_required = True
+                    print("  ✓ Email verification modal detected via alert element - slots found!")
         except TimeoutException:
             print("  No alert element with role='alert' found")
         except Exception as e:
@@ -63,8 +69,12 @@ def check_appointment_availability(driver):
             modal_found = _check_red_text_elements(driver)
         
         # Method 4: Check modal-content/modal-body structure
-        if not modal_found:
+        if not modal_found and not email_verification_required:
             modal_found = _check_modal_body_elements(driver)
+        
+        # Check for email verification in modal-body
+        if not email_verification_required:
+            email_verification_required = _check_email_verification_modal(driver)
         
         # Method 5: Simple text search in all visible text
         if not modal_found and ("no appointments" in body_text or "no appointments available" in body_text):
@@ -81,20 +91,28 @@ def check_appointment_availability(driver):
     
     # Print result
     print("\n" + "="*60)
-    if modal_found:
-        if captcha_failure_detected:
-            print("⚠️  CAPTCHA NOT SOLVED ⚠️")
-            print("="*60)
-            return False
+    if captcha_failure_detected:
+        current_url = driver.current_url
+        print("✅ SLOTS FOUND - CAPTCHA REQUIRED ON SITE!")
+        print(f"   {current_url}")
+        print("="*60)
+        return (True, "captcha_required")  # (slots_available, special_case)
+    elif email_verification_required:
+        current_url = driver.current_url
+        print("✅ SLOTS FOUND - EMAIL VERIFICATION REQUIRED!")
+        print(f"   {current_url}")
+        print("="*60)
+        return (True, "email_verification")  # (slots_available, special_case)
+    elif modal_found:
         print("⚠️  ALL SLOTS ARE BUSY ⚠️")
         print("="*60)
-        return False  # No appointments available
+        return (False, None)  # No appointments available
     else:
         current_url = driver.current_url
         print("✅ THERE ARE FREE SLOTS!!! GO BY LINK:")
         print(f"   {current_url}")
         print("="*60)
-        return True  # Appointments available
+        return (True, None)  # Appointments available, no special case
 
 
 def _check_red_text_elements(driver):
@@ -137,7 +155,7 @@ def _check_modal_body_elements(driver):
                         print("  ✓ Found modal-body with 'no appointments' message")
                         return True
                     if CAPTCHA_FAILURE_TEXT in modal_text:
-                        print("  ⚠ Found modal-body with hCaptcha message")
+                        print("  ✓ Found modal-body with hCaptcha message - slots found but captcha required!")
                         return True
             except:
                 continue
@@ -161,12 +179,31 @@ def _check_modal_divs(driver):
                             print("  ✓ Found modal div with 'no appointments' message")
                             return True
                         if CAPTCHA_FAILURE_TEXT in div_text:
-                            print("  ⚠ Found modal div with hCaptcha message")
+                            print("  ✓ Found modal div with hCaptcha message - slots found but captcha required!")
                             return True
             except:
                 continue
     except:
         pass
+    
+    return False
+
+
+def _check_email_verification_modal(driver):
+    """Check for email verification modal indicating slots are available."""
+    try:
+        modal_bodies = driver.find_elements(By.XPATH, "//div[contains(@class, 'modal-body')]")
+        for modal_body in modal_bodies:
+            try:
+                if modal_body.is_displayed():
+                    modal_text = modal_body.text.lower()
+                    if EMAIL_VERIFICATION_TEXT in modal_text:
+                        print("  ✓ Found email verification modal - slots available!")
+                        return True
+            except:
+                continue
+    except Exception as e:
+        print(f"  Error checking email verification modal: {e}")
     
     return False
 

@@ -17,7 +17,7 @@ from ..config import (
 from .webdriver_utils import scroll_to_element
 
 
-def find_dropdown_element(driver, name=None, element_id=None, css_selector=None):
+def find_dropdown_element(driver, name=None, element_id=None, css_selector=None, text_hint=None):
     """Find a dropdown element using multiple search strategies."""
     dropdown = None
     
@@ -39,6 +39,29 @@ def find_dropdown_element(driver, name=None, element_id=None, css_selector=None)
         except:
             pass
     
+    # Try partial match on name or id attributes
+    if name and not dropdown:
+        try:
+            dropdown = driver.find_element(
+                By.XPATH,
+                f"//*[@name and contains(@name, '{name}')] | //*[@id and contains(@id, '{name}')]"
+            )
+            print(f"  Found dropdown by partial match on '{name}'")
+            return dropdown
+        except:
+            pass
+    
+    if element_id and not dropdown:
+        try:
+            dropdown = driver.find_element(
+                By.XPATH,
+                f"//*[@id='{element_id}'] | //*[@id and contains(@id, '{element_id[:8]}')]"
+            )
+            print(f"  Found dropdown by id/partial id '{element_id}'")
+            return dropdown
+        except:
+            pass
+    
     # Try to find by CSS selector
     if css_selector and not dropdown:
         try:
@@ -56,6 +79,17 @@ def find_dropdown_element(driver, name=None, element_id=None, css_selector=None)
                 f"//input[contains(@name, '{name}')] | //button[contains(@name, '{name}')] | //div[contains(@name, '{name}')]"
             )
             print(f"  Found dropdown element by XPATH")
+            return dropdown
+        except:
+            pass
+    
+    if text_hint and not dropdown:
+        try:
+            dropdown = driver.find_element(
+                By.XPATH,
+                f"//*[contains(normalize-space(.), '{text_hint}')]/ancestor::*[self::div or self::button or self::span][1]"
+            )
+            print(f"  Found dropdown by text hint '{text_hint}'")
             return dropdown
         except:
             pass
@@ -131,7 +165,8 @@ def select_consulate_option(driver):
             driver,
             name=CONSULATE_DROPDOWN_NAME,
             element_id=CONSULATE_DROPDOWN_ID,
-            css_selector="[name*='ugyfelszolgalat'], [name='ugyfelszolgalat']"
+            css_selector="[name*='ugyfelszolgalat'], [name='ugyfelszolgalat']",
+            text_hint=CONSULATE_OPTION_TEXT,
         )
         
         if dropdown:
@@ -509,7 +544,10 @@ def _list_all_buttons(driver):
 def _debug_visa_type_search(driver):
     """Debug helper for visa type search."""
     print("  Searching for elements with id '7c357940-1e4e-4b29-8e87-8b1d09b97d07'...")
-    elements = driver.find_elements(By.CSS_SELECTOR, "#7c357940-1e4e-4b29-8e87-8b1d09b97d07, [id='7c357940-1e4e-4b29-8e87-8b1d09b97d07']")
+    elements = driver.find_elements(
+        By.XPATH,
+        "//*[@id='7c357940-1e4e-4b29-8e87-8b1d09b97d07'] | //*[contains(@id, '7c357940-1e4e-4b29-8e87-8b1d09b97d07')]"
+    )
     for elem in elements:
         print(f"    Found: tag='{elem.tag_name}', type='{elem.get_attribute('type')}', id='{elem.get_attribute('id')}'")
     

@@ -64,19 +64,29 @@ def send_telegram_message(message: str, screenshot_bytes: bytes = None):
         return False
 
 
-def send_result_notification(slots_available: bool, screenshot_bytes: bytes = None):
+def send_result_notification(slots_available: bool, screenshot_bytes: bytes = None, special_case: str = None):
     """
     Send appointment availability result notification.
     Only sends notification when slots are found.
     
     Args:
         slots_available: True if slots are available, False otherwise
-        screenshot_bytes: Optional screenshot bytes to attach
+        screenshot_bytes: Optional screenshot bytes to attach (None for special cases)
+        special_case: String indicating special case: "captcha_required", "email_verification", or None
     """
     if not slots_available:
         # Don't send notification if no slots found
         return
     
-    message = "✅ SLOTS FOUND!\n\nThere are available appointment slots!"
-    send_telegram_message(message, screenshot_bytes)
+    if special_case == "captcha_required":
+        message = "✅ SLOTS FOUND!\n\nThere are available appointment slots!\n\n⚠️ Site requests captcha check on site"
+        # Send without screenshot for captcha case
+        send_telegram_message(message, None)
+    elif special_case == "email_verification":
+        message = "✅ SLOTS FOUND!\n\nThere are available appointment slots!\n\n⚠️ Site requested email verification (captcha was sent on email)"
+        # Send without screenshot for email verification case
+        send_telegram_message(message, None)
+    else:
+        message = "✅ SLOTS FOUND!\n\nThere are available appointment slots!"
+        send_telegram_message(message, screenshot_bytes)
 

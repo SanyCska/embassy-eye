@@ -131,7 +131,14 @@ def fill_booking_form():
             # Check for appointment availability
             print("\n[7/8] Checking appointment availability...")
             sys.stdout.flush()
-            slots_available = check_appointment_availability(driver)
+            result = check_appointment_availability(driver)
+            
+            # Handle tuple return (slots_available, special_case) or boolean for backward compatibility
+            if isinstance(result, tuple):
+                slots_available, special_case = result
+            else:
+                slots_available = result
+                special_case = None
             
             # Only send notification if slots are found
             if slots_available:
@@ -146,11 +153,18 @@ def fill_booking_form():
                     print(f"  Saved page HTML to {html_path}")
                 except Exception as html_err:
                     print(f"  Warning: Failed to save page HTML: {html_err}")
-                print("  Capturing full page screenshot...")
-                sys.stdout.flush()
-                screenshot_bytes = get_full_page_screenshot(driver)
-                send_result_notification(slots_available, screenshot_bytes)
-                print("✓ Notification sent")
+                
+                if special_case in ("captcha_required", "email_verification"):
+                    # Send notification without screenshot for special cases
+                    send_result_notification(slots_available, None, special_case=special_case)
+                    case_name = "captcha required" if special_case == "captcha_required" else "email verification"
+                    print(f"✓ Notification sent (no screenshot - {case_name} required)")
+                else:
+                    print("  Capturing full page screenshot...")
+                    sys.stdout.flush()
+                    screenshot_bytes = get_full_page_screenshot(driver)
+                    send_result_notification(slots_available, screenshot_bytes, special_case=None)
+                    print("✓ Notification sent")
             else:
                 print("  No slots available")
             sys.stdout.flush()
