@@ -3,11 +3,16 @@ Functions for checking modal/appointment availability.
 """
 
 import time
+from datetime import datetime
+from pathlib import Path
 
 from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
+
+CAPTCHA_FAILURE_TEXT = "hcaptcha has to be checked"
+CAPTCHA_LOG_PATH = Path("logs") / "captcha_failures.log"
 
 
 def check_appointment_availability(driver):
@@ -17,6 +22,7 @@ def check_appointment_availability(driver):
     
     print("=== Checking for appointment availability ===")
     modal_found = False
+    captcha_failure_detected = False
     
     try:
         # Method 1: Check page source/text directly for the message
@@ -26,6 +32,10 @@ def check_appointment_availability(driver):
         if any(phrase in page_text or phrase in body_text for phrase in 
                ["no appointments available", "currently no appointments"]):
             print("  Found 'no appointments' text in page")
+        if CAPTCHA_FAILURE_TEXT in page_text or CAPTCHA_FAILURE_TEXT in body_text:
+            captcha_failure_detected = True
+            modal_found = True
+            print("  ⚠ hCaptcha modal detected in page text")
         
         # Method 2: Wait for and find the specific alert element with role="alert"
         alert_element = None
@@ -39,6 +49,10 @@ def check_appointment_availability(driver):
                 if "no appointments" in alert_text:
                     modal_found = True
                     print("  ✓ Modal confirmed with 'no appointments' message")
+                if CAPTCHA_FAILURE_TEXT in alert_text:
+                    captcha_failure_detected = True
+                    modal_found = True
+                    print("  ⚠ hCaptcha modal detected via alert element")
         except TimeoutException:
             print("  No alert element with role='alert' found")
         except Exception as e:
@@ -62,9 +76,16 @@ def check_appointment_availability(driver):
         import traceback
         traceback.print_exc()
     
+    if captcha_failure_detected:
+        _log_captcha_failure()
+    
     # Print result
     print("\n" + "="*60)
     if modal_found:
+        if captcha_failure_detected:
+            print("⚠️  CAPTCHA NOT SOLVED ⚠️")
+            print("="*60)
+            return False
         print("⚠️  ALL SLOTS ARE BUSY ⚠️")
         print("="*60)
         return False  # No appointments available
@@ -115,6 +136,9 @@ def _check_modal_body_elements(driver):
                           ["no appointments", "no appointments available", "currently no appointments"]):
                         print("  ✓ Found modal-body with 'no appointments' message")
                         return True
+                    if CAPTCHA_FAILURE_TEXT in modal_text:
+                        print("  ⚠ Found modal-body with hCaptcha message")
+                        return True
             except:
                 continue
     except Exception as e:
@@ -136,11 +160,25 @@ def _check_modal_divs(driver):
                         if "no appointments" in div_text:
                             print("  ✓ Found modal div with 'no appointments' message")
                             return True
+                        if CAPTCHA_FAILURE_TEXT in div_text:
+                            print("  ⚠ Found modal div with hCaptcha message")
+                            return True
             except:
                 continue
     except:
         pass
     
     return False
+
+
+def _log_captcha_failure():
+    """Append a timestamped log entry for captcha failures."""
+    try:
+        CAPTCHA_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with CAPTCHA_LOG_PATH.open("a", encoding="utf-8") as log_file:
+            log_file.write(f"{timestamp} - hCaptcha modal encountered\n")
+    except Exception as log_error:
+        print(f"  Warning: Failed to write captcha log: {log_error}")
 
 
