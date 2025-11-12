@@ -6,10 +6,13 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-# VPN configuration
-VPN_NAME="rs-beg"
+# VPN configuration - randomly select from available VPNs
+VPN_OPTIONS=("rs-beg" "hu-bu" "me-tgd")
+VPN_NAME="${VPN_OPTIONS[$RANDOM % ${#VPN_OPTIONS[@]}]}"
 VPN_UP_CMD="sudo wg-quick up $VPN_NAME"
 VPN_DOWN_CMD="sudo wg-quick down $VPN_NAME"
+
+echo "$(date): Selected VPN: $VPN_NAME (randomly chosen from: ${VPN_OPTIONS[*]})"
 
 # Function to start VPN
 start_vpn() {
