@@ -12,6 +12,8 @@ An automated appointment monitoring and booking system for embassy appointment s
 - ⏰ **Cron Scheduling**: Run automatically on a schedule (e.g., every 10 minutes)
 - 🎭 **Undetected Automation**: Uses undetected-chromedriver to avoid detection
 - 📸 **Screenshot Capture**: Automatically captures and sends screenshots when slots are found
+- ⏸️ **Captcha Cooldown**: Automatically skips runs when captcha is detected to avoid triggering rate limits
+- 💾 **HTML Saving**: Saves page HTML when slots are found (except for captcha cases)
 
 ## Requirements
 
@@ -146,16 +148,31 @@ For more detailed cron setup instructions, see [CRON_SETUP.md](CRON_SETUP.md).
 
 ## How It Works
 
-1. **Initialization**: Starts Chrome browser with undetected-chromedriver
-2. **Navigation**: Navigates to the embassy booking page
-3. **Form Inspection**: Analyzes available form fields
-4. **Form Filling**: 
+1. **Cooldown Check**: Before starting, checks if the script should skip this run due to captcha cooldown
+2. **Initialization**: Starts Chrome browser with undetected-chromedriver
+3. **Navigation**: Navigates to the embassy booking page
+4. **Form Inspection**: Analyzes available form fields
+5. **Form Filling**: 
    - Selects consulate and visa type from dropdowns
    - Fills all required fields with configured data
    - Handles special fields (email, checkboxes, textareas)
-5. **Slot Checking**: Clicks "Next" and checks for available appointment slots
-6. **Notification**: If slots are found, sends Telegram notification with screenshot
-7. **Cleanup**: Closes browser and shuts down VPN (if used)
+6. **Slot Checking**: Clicks "Next" and checks for available appointment slots
+7. **Notification**: If slots are found, sends Telegram notification with screenshot
+8. **HTML Saving**: Saves page HTML to `screenshots/` folder when slots are found (skipped for captcha cases)
+9. **Captcha Handling**: If captcha is detected, saves cooldown info and skips next 2 runs
+10. **Cleanup**: Closes browser and shuts down VPN (if used)
+
+### Captcha Cooldown Mechanism
+
+When the script detects that slots are available but a captcha is required, it automatically:
+
+- **Saves cooldown information** to `captcha_cooldown.json`
+- **Skips the next 2 scheduled runs** to avoid triggering rate limits
+- **Automatically resumes** normal operation after the cooldown period
+
+This helps prevent the script from repeatedly hitting captcha challenges. The cooldown file is automatically managed and cleared after the required number of skips.
+
+**Cooldown File Location**: `captcha_cooldown.json` in the project root
 
 ## Project Structure
 
@@ -168,6 +185,7 @@ embassy-eye/
 │   └── runner/          # Main execution logic
 ├── scripts/             # CLI entry points
 ├── screenshots/         # Captured screenshots and HTML
+├── captcha_cooldown.json  # Cooldown state file (auto-managed)
 ├── config.py            # Default configuration values
 ├── fill_form.py         # Backward-compatible entry point
 ├── run_script.sh        # Wrapper script with VPN management
@@ -206,6 +224,7 @@ docker logs -f embassy-eye
 3. **Docker not found**: Use full paths in cron jobs or ensure Docker is in PATH
 4. **Form fields not filling**: Check `config.py` for correct field mappings
 5. **No slots found**: This is expected - the tool will continue monitoring
+6. **Script skipping runs**: Check `captcha_cooldown.json` - the script automatically skips runs after captcha detection
 
 ### Logs
 

@@ -23,6 +23,7 @@ from ..automation import (
     select_visa_type_option,
 )
 from ..notifications import send_result_notification
+from .cooldown import check_and_handle_cooldown, save_captcha_cooldown
 
 
 def fill_booking_form():
@@ -32,6 +33,17 @@ def fill_booking_form():
     print(f"Starting embassy-eye at {datetime.datetime.now()}")
     print("=" * 60)
     sys.stdout.flush()
+    
+    # Check for captcha cooldown
+    should_skip, cooldown_message = check_and_handle_cooldown()
+    if should_skip:
+        print(f"\n⏸️  {cooldown_message}")
+        print("=" * 60)
+        sys.stdout.flush()
+        return
+    elif cooldown_message:
+        print(f"\nℹ️  {cooldown_message}")
+        sys.stdout.flush()
     
     # Initialize Chrome driver
     print("\n[1/8] Initializing Chrome driver...")
@@ -144,21 +156,30 @@ def fill_booking_form():
             if slots_available:
                 print("\n[8/8] Sending notification...")
                 sys.stdout.flush()
-                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                html_path = Path("screenshots") / f"slots_found_{timestamp}.html"
-                try:
-                    html_path.parent.mkdir(parents=True, exist_ok=True)
-                    with html_path.open("w", encoding="utf-8") as f:
-                        f.write(driver.page_source)
-                    print(f"  Saved page HTML to {html_path}")
-                except Exception as html_err:
-                    print(f"  Warning: Failed to save page HTML: {html_err}")
+                
+                # Save HTML only if it's not a captcha case
+                if special_case != "captcha_required":
+                    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                    html_path = Path("screenshots") / f"slots_found_{timestamp}.html"
+                    try:
+                        html_path.parent.mkdir(parents=True, exist_ok=True)
+                        with html_path.open("w", encoding="utf-8") as f:
+                            f.write(driver.page_source)
+                        print(f"  Saved page HTML to {html_path}")
+                    except Exception as html_err:
+                        print(f"  Warning: Failed to save page HTML: {html_err}")
+                else:
+                    print("  Skipping HTML save (captcha case)")
                 
                 if special_case in ("captcha_required", "email_verification"):
                     # Send notification without screenshot for special cases
                     send_result_notification(slots_available, None, special_case=special_case)
                     case_name = "captcha required" if special_case == "captcha_required" else "email verification"
                     print(f"✓ Notification sent (no screenshot - {case_name} required)")
+                    
+                    # Save cooldown if captcha is required
+                    if special_case == "captcha_required":
+                        save_captcha_cooldown()
                 else:
                     print("  Capturing full page screenshot...")
                     sys.stdout.flush()
