@@ -13,6 +13,12 @@ services:
       - TELEGRAM_USER_ID=${TELEGRAM_USER_ID}
     env_file:
       - .env
+    volumes:
+      # Mount screenshots directory to persist HTML files
+      - ./screenshots:/app/screenshots
+      # Mount project root to persist captcha_cooldown.json and allow code access
+      # Note: Python packages are installed system-wide, so they remain available
+      - .:/app
     # Uncomment to run on a schedule (requires cron or similar)
     # restart: unless-stopped
 
