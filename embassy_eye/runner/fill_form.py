@@ -22,7 +22,7 @@ from ..automation import (
     select_consulate_option,
     select_visa_type_option,
 )
-from ..notifications import send_result_notification
+from ..notifications import send_result_notification, send_telegram_message
 from .cooldown import check_and_handle_cooldown, save_captcha_cooldown
 
 
@@ -128,14 +128,20 @@ def fill_booking_form():
                     with html_path.open("w", encoding="utf-8") as f:
                         f.write(driver.page_source)
                     print(f"Saved HTML to {html_path}")
+                    # Send success notification
+                    send_telegram_message(f"✅ HTML saved successfully\n\nFile: {html_path}\nReason: No fields were filled (0 fields)")
                 else:
                     print(f"HTML already exists at {html_path}, skipping save")
             except PermissionError as e:
+                error_msg = f"❌ Failed to save HTML: Permission denied\n\nFile: {html_path}\nError: {e}\n\nThis is not critical, script continues..."
                 print(f"  Warning: Permission denied saving HTML to {html_path}: {e}")
                 print("  This is not critical, continuing...")
+                send_telegram_message(error_msg)
             except Exception as e:
+                error_msg = f"❌ Failed to save HTML\n\nFile: {html_path}\nError: {e}\n\nThis is not critical, script continues..."
                 print(f"  Warning: Failed to save HTML: {e}")
                 print("  This is not critical, continuing...")
+                send_telegram_message(error_msg)
         
         # Click the next button
         print("\n[6/8] Clicking next button...")
@@ -170,12 +176,18 @@ def fill_booking_form():
                         with html_path.open("w", encoding="utf-8") as f:
                             f.write(driver.page_source)
                         print(f"  Saved page HTML to {html_path}")
+                        # Send success notification
+                        send_telegram_message(f"✅ HTML saved successfully\n\nFile: {html_path}\nReason: Slots found!")
                     except PermissionError as html_err:
+                        error_msg = f"❌ Failed to save HTML: Permission denied\n\nFile: {html_path}\nError: {html_err}\n\nThis is not critical, script continues..."
                         print(f"  Warning: Permission denied saving page HTML: {html_err}")
                         print("  This is not critical, continuing...")
+                        send_telegram_message(error_msg)
                     except Exception as html_err:
+                        error_msg = f"❌ Failed to save HTML\n\nFile: {html_path}\nError: {html_err}\n\nThis is not critical, script continues..."
                         print(f"  Warning: Failed to save page HTML: {html_err}")
                         print("  This is not critical, continuing...")
+                        send_telegram_message(error_msg)
                 else:
                     print("  Skipping HTML save (captcha case)")
                 
