@@ -1,0 +1,4 @@
+"""
+Hungary embassy booking scraper.
+"""
+

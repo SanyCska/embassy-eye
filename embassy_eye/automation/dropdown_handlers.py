@@ -7,7 +7,7 @@ import time
 from selenium.common.exceptions import NoSuchElementException
 from selenium.webdriver.common.by import By
 
-from ..config import (
+from ..scrapers.hungary.config import (
     CONSULATE_DROPDOWN_ID,
     CONSULATE_DROPDOWN_NAME,
     CONSULATE_OPTION_TEXT,

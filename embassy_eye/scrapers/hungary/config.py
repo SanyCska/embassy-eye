@@ -1,8 +1,5 @@
 """
-Configuration constants and default values for the booking form filler.
-
-DEPRECATED: This file is kept for backward compatibility.
-New code should import from embassy_eye.scrapers.hungary.config instead.
+Configuration constants and default values for the Hungary embassy booking form filler.
 """
 
 from datetime import date, timedelta
@@ -247,5 +244,4 @@ INSPECTION_TIME = 30
 
 # Textarea default value
 DEFAULT_TEXTAREA_VALUE = "Test message"
-
 

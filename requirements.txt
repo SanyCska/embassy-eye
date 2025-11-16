@@ -2,3 +2,6 @@ selenium>=4.0.0
 python-dotenv>=1.0.0
 requests>=2.31.0
 undetected-chromedriver>=3.5.0
+playwright>=1.40.0
+playwright-stealth>=1.0.6
+playwright-recaptcha>=0.3.0

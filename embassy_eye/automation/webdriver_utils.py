@@ -26,7 +26,7 @@ try:
 except ImportError:
     UC_AVAILABLE = False
 
-from ..config import BOOKING_URL, PAGE_LOAD_WAIT
+from ..scrapers.hungary.config import BOOKING_URL, PAGE_LOAD_WAIT
 
 
 # Large pool of realistic, up-to-date user agents (2024-2025)

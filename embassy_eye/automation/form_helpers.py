@@ -10,7 +10,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import Select
 
-from ..config import (
+from ..scrapers.hungary.config import (
     CHAR_TYPE_DELAY,
     DEFAULT_TEXTAREA_VALUE,
     DEFAULT_VALUES,
