@@ -33,6 +33,7 @@ from playwright.sync_api import (
     Response,
     Request,
 )
+from ...notifications import send_telegram_message
 
 # Load environment variables
 load_dotenv()
@@ -52,6 +53,16 @@ EMAIL_SELECTOR = "#login-email"
 PASSWORD_SELECTOR = "#login-password"
 CAPTCHA_TRIGGER_SELECTOR = "#captcha-trigger"
 LOGIN_FORM_SELECTOR = "#login-form"
+SERVICES_TAB_SELECTOR = "nav.app-menu a[href='/Services']"
+BOOKING_TARGET_URLS = [
+    "/Services/Booking/1151",
+    "/Services/Booking/1258",
+]
+NO_SLOT_MESSAGES = [
+    "Sorry, all appointments for this service are currently booked. Please check again tomorrow for cancellations or new appointments.",
+    "Stante l'elevata richiesta i posti disponibili per il servizio scelto sono esauriti."
+]
+APPOINTMENT_PORTAL_URL = "https://prenotami.esteri.it/"
 
 # Timeouts (in milliseconds)
 PAGE_LOAD_TIMEOUT = 45000
@@ -401,6 +412,7 @@ class ItalyLoginBot:
         self.mouse = None
         self.chrome_process = None
         self.user_data_dir = None
+        self.slots_notified = False
     
     def setup_browser(self) -> None:
         """Setup browser by launching real Google Chrome and connecting via CDP."""
@@ -1002,6 +1014,173 @@ class ItalyLoginBot:
         except:
             return None
     
+    def navigate_to_services_tab(self) -> bool:
+        """Navigate to the 'Rezerviši' (/Services) tab after login."""
+        Logger.log("Navigating to 'Rezerviši' tab (/Services)...")
+        
+        try:
+            nav_locator = self.page.locator(SERVICES_TAB_SELECTOR)
+            nav_locator.wait_for(state="visible", timeout=ELEMENT_WAIT_TIMEOUT)
+            Logger.log("✓ Services tab located")
+        except PlaywrightTimeoutError:
+            Logger.log("✗ Services tab not found on the page", "ERROR")
+            return False
+        except Exception as e:
+            Logger.log(f"✗ Unexpected error locating Services tab: {e}", "ERROR")
+            return False
+        
+        try:
+            HumanBehavior.random_delay(600, 1200)
+            
+            if self.mouse:
+                self.mouse.move_to_element(nav_locator)
+            else:
+                nav_locator.hover()
+                HumanBehavior.random_delay(300, 700)
+            
+            nav_locator.click()
+            Logger.log("✓ Clicked Services tab, waiting for navigation...")
+        except Exception as e:
+            Logger.log(f"✗ Failed to click Services tab: {e}", "ERROR")
+            return False
+        
+        try:
+            self.page.wait_for_url("**/Services*", timeout=PAGE_LOAD_TIMEOUT)
+            Logger.log(f"✓ Navigation confirmed: {self.page.url}")
+            HumanBehavior.simulate_reading(self.page)
+            return True
+        except PlaywrightTimeoutError:
+            Logger.log("⚠ Navigation to /Services not confirmed within timeout", "WARN")
+        except Exception as e:
+            Logger.log(f"⚠ Error while waiting for /Services navigation: {e}", "WARN")
+        
+        current_url = self.page.url
+        if "/Services" in current_url:
+            Logger.log(f"✓ Already on Services page: {current_url}")
+            HumanBehavior.simulate_reading(self.page)
+            return True
+        
+        Logger.log(f"✗ Still not on Services tab (current URL: {current_url})", "ERROR")
+        return False
+    
+    def check_booking_slots(self) -> bool:
+        """Click through targeted booking buttons and look for slot availability."""
+        if not BOOKING_TARGET_URLS:
+            Logger.log("ℹ No booking targets configured; skipping slot check.")
+            return False
+        
+        Logger.log(f"Checking {len(BOOKING_TARGET_URLS)} booking targets for available slots...")
+        for href in BOOKING_TARGET_URLS:
+            if self.try_booking_button(href):
+                return True
+        
+        Logger.log("✗ No slots detected for monitored services.")
+        return False
+    
+    def try_booking_button(self, href: str) -> bool:
+        """Click a specific booking button and determine if slots are available."""
+        Logger.log(f"→ Inspecting booking option: {href}")
+        button_selector = f"a[href='{href}'] button.button.primary"
+        button_locator = self.page.locator(button_selector)
+        
+        try:
+            button_locator.wait_for(state="visible", timeout=ELEMENT_WAIT_TIMEOUT)
+        except PlaywrightTimeoutError:
+            Logger.log(f"✗ Booking button not found for {href}", "ERROR")
+            return False
+        except Exception as e:
+            Logger.log(f"✗ Error locating booking button {href}: {e}", "ERROR")
+            return False
+        
+        try:
+            HumanBehavior.random_delay(700, 1400)
+            
+            if self.mouse:
+                self.mouse.move_to_element(button_locator)
+            else:
+                button_locator.hover()
+                HumanBehavior.random_delay(300, 600)
+            
+            button_locator.click()
+            Logger.log(f"✓ Clicked booking button for {href}")
+        except Exception as e:
+            Logger.log(f"✗ Failed to click booking button {href}: {e}", "ERROR")
+            return False
+        
+        Logger.log("⏳ Waiting 5 seconds for modal response...")
+        time.sleep(5)
+        
+        if self.wait_for_no_slot_modal():
+            Logger.log(f"✗ No slots available for {href}", "INFO")
+            return False
+        
+        Logger.log(f"✓ No 'fully booked' modal detected for {href} – slots may be available!")
+        self.notify_slots_found(href)
+        return True
+    
+    def wait_for_no_slot_modal(self, timeout_ms: int = 6000) -> bool:
+        """
+        Wait for the known 'no slots' modal to appear.
+        Returns True if the modal was shown (meaning no slots), False otherwise.
+        """
+        modal_locator = self.page.locator(".jconfirm-box").first
+        try:
+            modal_locator.wait_for(state="visible", timeout=timeout_ms)
+        except PlaywrightTimeoutError:
+            return False
+        except Exception as e:
+            Logger.log(f"⚠ Error while waiting for modal: {e}", "WARN")
+            return False
+        
+        try:
+            modal_text = modal_locator.inner_text().strip()
+        except Exception:
+            modal_text = ""
+        
+        lower_text = modal_text.lower()
+        matched_message = None
+        for message in NO_SLOT_MESSAGES:
+            if message.lower() in lower_text:
+                matched_message = message
+                break
+        
+        if matched_message:
+            Logger.log("ℹ No-slot modal detected: " + matched_message, "INFO")
+        else:
+            Logger.log(f"⚠ Modal detected with unexpected text: {modal_text}", "WARN")
+        
+        self.dismiss_modal(modal_locator)
+        return True
+    
+    def dismiss_modal(self, modal_locator) -> None:
+        """Attempt to close the currently visible modal."""
+        try:
+            ok_button = modal_locator.locator(".jconfirm-buttons button")
+            if ok_button.count() > 0:
+                ok_button.first.click()
+                HumanBehavior.random_delay(400, 800)
+        except Exception as e:
+            Logger.log(f"⚠ Unable to close modal cleanly: {e}", "WARN")
+    
+    def notify_slots_found(self, href: str) -> None:
+        """Send a Telegram notification when slots are found."""
+        if self.slots_notified:
+            Logger.log("ℹ Slots already reported earlier in this run; skipping duplicate notification.")
+            return
+        
+        service_id = href.split("/")[-1] if "/" in href else href
+        message = (
+            "✅ SLOTS FOUND IN ITALY!\n\n"
+            f"Service ID: {service_id}\n"
+            f"Portal: {APPOINTMENT_PORTAL_URL}"
+        )
+        
+        if send_telegram_message(message):
+            self.slots_notified = True
+            Logger.log("✓ Telegram notification sent for Italy slots.")
+        else:
+            Logger.log("⚠ Failed to send Telegram notification.", "WARN")
+    
     def get_session_data(self) -> Dict[str, Any]:
         """Extract session data from browser context."""
         try:
@@ -1083,6 +1262,23 @@ class ItalyLoginBot:
         except:
             pass
     
+    def wait_for_user_to_finish(self) -> None:
+        """
+        Keep the browser open until the operator confirms they're done inspecting.
+        Falls back to a short sleep if stdin isn't interactive.
+        """
+        if not self.browser or not self.page:
+            return
+        
+        prompt = "\nPress ENTER when you are finished inspecting the browser..."
+        Logger.log("Browser will remain open for inspection until you press ENTER.")
+        
+        try:
+            input(prompt)
+        except EOFError:
+            Logger.log("Console input unavailable; waiting 10 seconds before closing.", "WARN")
+            time.sleep(10)
+    
     def run(self) -> Optional[Dict[str, Any]]:
         """Run the complete login flow."""
         Logger.log("=" * 70)
@@ -1126,15 +1322,21 @@ class ItalyLoginBot:
             
             Logger.log("✓ Login successful!")
             
+            slots_found = False
+            if self.navigate_to_services_tab():
+                slots_found = self.check_booking_slots()
+                if slots_found:
+                    Logger.log("✓ Slot availability detected and notification dispatched.")
+                else:
+                    Logger.log("ℹ No slots detected during this run.")
+            else:
+                Logger.log("⚠ Unable to automatically open /Services tab. Skipping slot check.", "WARN")
+            
             # Extract session data
             Logger.log("Extracting session data...")
             session_data = self.get_session_data()
             Logger.log(f"✓ Extracted {len(session_data.get('cookies', []))} cookies")
             Logger.log(f"✓ Final URL: {session_data.get('url', 'unknown')}")
-            
-            # Keep browser open for inspection
-            Logger.log("\nBrowser will remain open for 10 seconds for inspection...")
-            time.sleep(10)
             
             return session_data
             
@@ -1150,6 +1352,7 @@ class ItalyLoginBot:
             traceback.print_exc()
             return None
         finally:
+            self.wait_for_user_to_finish()
             self.cleanup()
         
         Logger.log("=" * 70)
