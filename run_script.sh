@@ -1,6 +1,6 @@
 #!/bin/bash
-# Wrapper script to run embassy-eye script
-# This script manages VPN connection and runs the embassy-eye script
+# Wrapper script to run embassy-eye scripts (Hungary and Italy)
+# This script manages VPN connection and runs both Hungary and Italy scrapers sequentially
 
 # Get the directory where this script is located
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

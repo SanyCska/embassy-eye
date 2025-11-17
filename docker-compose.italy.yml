@@ -25,6 +25,8 @@ services:
       - PROXY_SERVER=${PROXY_SERVER:-}
       - PROXY_USERNAME=${PROXY_USERNAME:-}
       - PROXY_PASSWORD=${PROXY_PASSWORD:-}
+      # Headless mode (set to true for Docker/server, false for local dev)
+      - ITALY_HEADLESS=${ITALY_HEADLESS:-true}
     env_file:
       - .env
     volumes:

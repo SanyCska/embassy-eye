@@ -43,6 +43,11 @@ LOGIN_URL = os.getenv("ITALY_LOGIN_URL", "https://prenotami.esteri.it/")
 EMAIL = os.getenv("LOGIN_EMAIL") or os.getenv("ITALY_EMAIL", "")
 PASSWORD = os.getenv("LOGIN_PASSWORD") or os.getenv("ITALY_PASSWORD", "")
 
+# Headless mode configuration (for Docker/server environments)
+# Set ITALY_HEADLESS=true or ITALY_INTERACTIVE=false to run in headless mode
+HEADLESS_MODE = os.getenv("ITALY_HEADLESS", "").lower() in ("true", "1", "yes") or \
+                os.getenv("ITALY_INTERACTIVE", "").lower() in ("false", "0", "no")
+
 # Proxy configuration (optional)
 PROXY_SERVER = os.getenv("PROXY_SERVER", "")  # e.g., "http://proxy.example.com:8080"
 PROXY_USERNAME = os.getenv("PROXY_USERNAME", "")
@@ -434,6 +439,18 @@ class ItalyLoginBot:
             '--disable-blink-features=AutomationControlled',
         ]
         
+        # Add headless mode flags if running in Docker/server environment
+        if HEADLESS_MODE:
+            chrome_args.extend([
+                '--headless=new',
+                '--disable-gpu',
+                '--disable-software-rasterizer',
+                '--disable-extensions',
+            ])
+            Logger.log("Running Chrome in headless mode (for Docker/server)")
+        else:
+            Logger.log("Running Chrome in interactive mode")
+        
         # Add proxy if configured
         if proxy_config:
             proxy_server = proxy_config['server']
@@ -471,17 +488,26 @@ class ItalyLoginBot:
         # Wait for Chrome to start and CDP to be available
         Logger.log("Waiting for Chrome CDP to be ready...")
         import urllib.request
-        max_retries = 10
+        max_retries = 30  # Increased timeout for Docker environments
         for i in range(max_retries):
             try:
-                with urllib.request.urlopen("http://localhost:9222/json/version", timeout=1) as response:
+                with urllib.request.urlopen("http://localhost:9222/json/version", timeout=2) as response:
                     if response.status == 200:
                         Logger.log("✓ Chrome CDP is ready")
                         break
-            except:
+            except Exception as e:
                 if i < max_retries - 1:
+                    if (i + 1) % 5 == 0:  # Log every 5 seconds
+                        Logger.log(f"  → Still waiting for CDP... ({i + 1}s elapsed)")
                     time.sleep(1)
                 else:
+                    # Check if Chrome process is still running
+                    if self.chrome_process and self.chrome_process.poll() is None:
+                        Logger.log(f"✗ Chrome CDP did not become available after {max_retries} seconds", "ERROR")
+                        Logger.log(f"  Chrome process is running but CDP not accessible. Last error: {e}", "ERROR")
+                        Logger.log("  This may indicate a Docker networking issue or Chrome startup problem.", "ERROR")
+                    else:
+                        Logger.log("✗ Chrome process exited unexpectedly", "ERROR")
                     raise LoginError("Chrome CDP did not become available. Chrome may have failed to start.")
         
         # Connect Playwright to real Chrome via CDP
@@ -1265,9 +1291,14 @@ class ItalyLoginBot:
     def wait_for_user_to_finish(self) -> None:
         """
         Keep the browser open until the operator confirms they're done inspecting.
-        Falls back to a short sleep if stdin isn't interactive.
+        Falls back to a short sleep if stdin isn't interactive or in headless mode.
         """
         if not self.browser or not self.page:
+            return
+        
+        # Skip interactive wait in headless mode (Docker/server environments)
+        if HEADLESS_MODE:
+            Logger.log("Headless mode: skipping interactive wait, closing browser immediately")
             return
         
         prompt = "\nPress ENTER when you are finished inspecting the browser..."
