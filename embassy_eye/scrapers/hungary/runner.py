@@ -11,6 +11,7 @@ from ...automation import (
     check_appointment_availability,
     click_next_button,
     create_driver,
+    detect_blocked_ip,
     fill_fields_by_map,
     fill_reenter_email_field,
     fill_remaining_fields,
@@ -67,6 +68,12 @@ def fill_booking_form():
         wait = navigate_to_booking_page(driver)
         print("✓ Page loaded")
         sys.stdout.flush()
+
+        # Immediately check if access is blocked by IP
+        blocked_ip = detect_blocked_ip(driver)
+        if blocked_ip:
+            print("  Detected blocked IP right after page load. Aborting run.")
+            return
         
         # Inspect form fields
         print("\n[3/8] Inspecting form fields...")
@@ -213,6 +220,10 @@ def fill_booking_form():
         else:
             print("  Next button not found or not clickable")
             sys.stdout.flush()
+            blocked_ip = detect_blocked_ip(driver)
+            if blocked_ip:
+                print("  🚫 IP blocked detected after failing to find next button.")
+                print("  Details saved to logs/blocked_ips.log")
         
         # Keep browser open for inspection (only if not headless)
         # Since we're in headless mode, skip the inspection delay

@@ -225,6 +225,27 @@ def _check_email_verification_modal(driver):
     return False
 
 
+def detect_blocked_ip(driver):
+    """Detect blocked IP message anywhere on the page and log it."""
+    try:
+        page_text = driver.page_source.lower()
+    except Exception:
+        page_text = ""
+    try:
+        body_text = driver.find_element(By.TAG_NAME, "body").text.lower()
+    except Exception:
+        body_text = ""
+
+    blocked_ip = _extract_blocked_ip(body_text) or _extract_blocked_ip(page_text)
+    if blocked_ip:
+        print("❌ ACCESS BLOCKED BY IP RESTRICTION ❌")
+        print(f"   Detected blocked IP: {blocked_ip}")
+        _log_blocked_ip(blocked_ip)
+        return blocked_ip
+
+    return None
+
+
 def _log_captcha_failure():
     """Append a timestamped log entry for captcha failures."""
     try:
