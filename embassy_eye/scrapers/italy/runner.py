@@ -33,7 +33,7 @@ from playwright.sync_api import (
     Response,
     Request,
 )
-from ...notifications import send_telegram_message
+from ...notifications import send_telegram_message, send_telegram_document
 
 # Load environment variables
 load_dotenv()
@@ -1103,6 +1103,50 @@ class ItalyLoginBot:
         except:
             return None
     
+    def send_debug_html_snapshot(self, reason: str) -> None:
+        """Capture current HTML and send it to Telegram for debugging."""
+        if not HEADLESS_MODE:
+            return
+        
+        try:
+            current_url = self.page.url
+        except Exception:
+            current_url = "unknown"
+        
+        try:
+            html_content = self.page.content()
+        except Exception as e:
+            Logger.log(f"⚠ Unable to capture HTML content for Telegram: {e}", "WARN")
+            return
+        
+        if not html_content:
+            Logger.log("⚠ HTML content is empty; nothing to send to Telegram", "WARN")
+            return
+        
+        max_bytes = 500_000
+        encoded_content = html_content.encode("utf-8", errors="ignore")
+        truncated = False
+        if len(encoded_content) > max_bytes:
+            encoded_content = encoded_content[:max_bytes]
+            truncated = True
+        
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"italy-debug-{timestamp}.html"
+        
+        caption_lines = [
+            "⚠️ Italy bot debug snapshot",
+            f"Reason: {reason}",
+            f"URL: {current_url}",
+        ]
+        if truncated:
+            caption_lines.append("Note: HTML truncated to 500 KB.")
+        caption = "\n".join(caption_lines)
+        
+        if send_telegram_document(filename, caption, encoded_content):
+            Logger.log("✓ Debug HTML sent to Telegram for analysis")
+        else:
+            Logger.log("⚠ Failed to send debug HTML to Telegram", "WARN")
+    
     def navigate_to_services_tab(self) -> bool:
         """Navigate to the 'Rezerviši' (/Services) tab after login."""
         Logger.log("Navigating to 'Rezerviši' tab (/Services)...")
@@ -1113,9 +1157,11 @@ class ItalyLoginBot:
             Logger.log("✓ Services tab located")
         except PlaywrightTimeoutError:
             Logger.log("✗ Services tab not found on the page", "ERROR")
+            self.send_debug_html_snapshot("Services tab not found (timeout)")
             return False
         except Exception as e:
             Logger.log(f"✗ Unexpected error locating Services tab: {e}", "ERROR")
+            self.send_debug_html_snapshot(f"Services tab error: {e}")
             return False
         
         try:
@@ -1150,6 +1196,7 @@ class ItalyLoginBot:
             return True
         
         Logger.log(f"✗ Still not on Services tab (current URL: {current_url})", "ERROR")
+        self.send_debug_html_snapshot("Failed to reach /Services after click")
         return False
     
     def check_booking_slots(self) -> bool:

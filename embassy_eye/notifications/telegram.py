@@ -13,6 +13,17 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_USER_ID = os.getenv("TELEGRAM_USER_ID")
 
 
+def _ensure_telegram_config() -> bool:
+    """Verify that the Telegram bot credentials are configured."""
+    if not TELEGRAM_BOT_TOKEN:
+        print("Warning: TELEGRAM_BOT_TOKEN not set in .env file")
+        return False
+    if not TELEGRAM_USER_ID:
+        print("Warning: TELEGRAM_USER_ID not set in .env file")
+        return False
+    return True
+
+
 def send_telegram_message(message: str, screenshot_bytes: bytes = None):
     """
     Send a message to the user via Telegram bot.
@@ -24,12 +35,7 @@ def send_telegram_message(message: str, screenshot_bytes: bytes = None):
     Returns:
         bool: True if message was sent successfully, False otherwise
     """
-    if not TELEGRAM_BOT_TOKEN:
-        print("Warning: TELEGRAM_BOT_TOKEN not set in .env file")
-        return False
-    
-    if not TELEGRAM_USER_ID:
-        print("Warning: TELEGRAM_USER_ID not set in .env file")
+    if not _ensure_telegram_config():
         return False
     
     try:
@@ -61,6 +67,40 @@ def send_telegram_message(message: str, screenshot_bytes: bytes = None):
         return False
     except Exception as e:
         print(f"Unexpected error sending Telegram message: {e}")
+        return False
+
+
+def send_telegram_document(filename: str, caption: str, file_bytes: bytes) -> bool:
+    """
+    Send a document (e.g., HTML dump) to the user via Telegram bot.
+    
+    Args:
+        filename: Name of the document (shown in Telegram)
+        caption: Optional caption (max 1024 characters)
+        file_bytes: File content in bytes
+    
+    Returns:
+        bool: True if document was sent successfully, False otherwise
+    """
+    if not _ensure_telegram_config():
+        return False
+    
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendDocument"
+        files = {'document': (filename, file_bytes, 'text/html')}
+        data = {
+            'chat_id': TELEGRAM_USER_ID,
+            'caption': caption[:1024] if caption else ""
+        }
+        response = requests.post(url, files=files, data=data)
+        response.raise_for_status()
+        print("✓ Telegram document sent successfully")
+        return True
+    except requests.exceptions.RequestException as e:
+        print(f"Error sending Telegram document: {e}")
+        return False
+    except Exception as e:
+        print(f"Unexpected error sending Telegram document: {e}")
         return False
 
 
