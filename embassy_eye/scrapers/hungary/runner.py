@@ -121,17 +121,15 @@ def fill_booking_form():
         
         # If nothing was filled, persist the current page HTML once for offline inspection
         if filled_count == 0:
-            html_path = Path("screenshots/filled_0_fields.html")
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            html_path = Path("screenshots") / f"filled_0_fields_{timestamp}.html"
             try:
-                if not html_path.exists():
-                    html_path.parent.mkdir(parents=True, exist_ok=True)
-                    with html_path.open("w", encoding="utf-8") as f:
-                        f.write(driver.page_source)
-                    print(f"Saved HTML to {html_path}")
-                    # Send success notification
-                    send_telegram_message(f"✅ HTML saved successfully\n\nFile: {html_path}\nReason: No fields were filled (0 fields)")
-                else:
-                    print(f"HTML already exists at {html_path}, skipping save")
+                html_path.parent.mkdir(parents=True, exist_ok=True)
+                with html_path.open("w", encoding="utf-8") as f:
+                    f.write(driver.page_source)
+                print(f"Saved HTML to {html_path}")
+                # Send success notification
+                send_telegram_message(f"✅ HTML saved successfully\n\nFile: {html_path}\nReason: No fields were filled (0 fields)")
             except PermissionError as e:
                 error_msg = f"❌ Failed to save HTML: Permission denied\n\nFile: {html_path}\nError: {e}\n\nThis is not critical, script continues..."
                 print(f"  Warning: Permission denied saving HTML to {html_path}: {e}")
@@ -163,7 +161,10 @@ def fill_booking_form():
                 special_case = None
             
             # Only send notification if slots are found
-            if slots_available:
+            if special_case == "ip_blocked":
+                print("  🚫 IP blocked detected. Please switch network.")
+                print("  Details saved to logs/blocked_ips.log")
+            elif slots_available:
                 print("\n[8/8] Sending notification...")
                 sys.stdout.flush()
                 

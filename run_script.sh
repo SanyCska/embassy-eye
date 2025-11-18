@@ -6,13 +6,22 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-# VPN configuration - randomly select from available VPNs
-VPN_OPTIONS=("rs-beg" "hu-bu" "me-tgd")
-VPN_NAME="${VPN_OPTIONS[$RANDOM % ${#VPN_OPTIONS[@]}]}"
-VPN_UP_CMD="sudo wg-quick up $VPN_NAME"
-VPN_DOWN_CMD="sudo wg-quick down $VPN_NAME"
+# VPN configuration
+VPN_OPTIONS=("rs-beg" "hu-bu" "me-tgd" "ba-sjj" "cy-nic" "hr-zag" "md-chi" "ro-buc" "tr-ist")
+VPN_NAME=""
+VPN_UP_CMD=""
+VPN_DOWN_CMD=""
+BLOCKED_IPS_FILE="$SCRIPT_DIR/logs/blocked_ips.log"
+MAX_VPN_IP_ATTEMPTS=5
 
-echo "$(date): Selected VPN: $VPN_NAME (randomly chosen from: ${VPN_OPTIONS[*]})"
+select_random_vpn() {
+    VPN_NAME="${VPN_OPTIONS[$RANDOM % ${#VPN_OPTIONS[@]}]}"
+    VPN_UP_CMD="sudo wg-quick up $VPN_NAME"
+    VPN_DOWN_CMD="sudo wg-quick down $VPN_NAME"
+    echo "$(date): Selected VPN: $VPN_NAME (randomly chosen from: ${VPN_OPTIONS[*]})"
+}
+
+select_random_vpn
 
 # Function to start VPN
 start_vpn() {
@@ -35,6 +44,63 @@ start_vpn() {
 
     # Wait a moment for VPN to establish connection
     sleep 2
+}
+
+get_public_ip() {
+    local ip
+    ip=$(curl -s https://api.ipify.org)
+    if [ -z "$ip" ]; then
+        ip=$(curl -s https://ifconfig.me 2>/dev/null)
+    fi
+    echo "$ip"
+}
+
+ip_is_blocked() {
+    local ip="$1"
+    if [ -z "$ip" ] || [ ! -f "$BLOCKED_IPS_FILE" ]; then
+        return 1
+    fi
+    grep -Fq "$ip" "$BLOCKED_IPS_FILE"
+}
+
+ensure_vpn_ip_allowed() {
+    local attempt=1
+    while [ $attempt -le $MAX_VPN_IP_ATTEMPTS ]; do
+        CURRENT_IP=$(get_public_ip)
+        if [ -z "$CURRENT_IP" ]; then
+            echo "$(date): WARNING: Unable to determine current IP address after VPN connection."
+            return 1
+        fi
+
+        echo "$(date): Current VPN IP is $CURRENT_IP"
+        if ip_is_blocked "$CURRENT_IP"; then
+            echo "$(date): Detected blocked IP ($CURRENT_IP). Attempt $attempt/$MAX_VPN_IP_ATTEMPTS."
+            if [ $attempt -eq $MAX_VPN_IP_ATTEMPTS ]; then
+                echo "$(date): ERROR: Reached maximum VPN retries with blocked IPs."
+                return 1
+            fi
+            echo "$(date): Restarting VPN to obtain a different IP..."
+            shutdown_vpn
+            select_random_vpn
+            start_vpn
+            attempt=$((attempt + 1))
+            continue
+        fi
+
+        echo "$(date): VPN IP OK (not in blocked list)."
+        return 0
+    done
+
+    return 1
+}
+
+# Wrapper to start VPN and ensure IP is acceptable
+establish_vpn_connection() {
+    start_vpn
+    if ! ensure_vpn_ip_allowed; then
+        echo "$(date): ERROR: Unable to acquire an allowed IP via VPN."
+        exit 1
+    fi
 }
 
 # Function to shut down VPN (called on exit)
@@ -94,7 +160,7 @@ if command -v docker &> /dev/null; then
     fi
     
     # Start VPN (AFTER build, BEFORE running containers)
-    start_vpn
+    establish_vpn_connection
     
     # Run Hungary script with Docker (device info randomizes on each run)
     echo "$(date): ========================================"
@@ -136,7 +202,7 @@ if command -v docker &> /dev/null; then
 else
     # Run directly with Python (requires Python environment setup)
     # For Python, VPN is needed before running
-    start_vpn
+    establish_vpn_connection
     
     # Run Hungary script with Python
     echo "$(date): ========================================"

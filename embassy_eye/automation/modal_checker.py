@@ -2,6 +2,7 @@
 Functions for checking modal/appointment availability.
 """
 
+import re
 import time
 from datetime import datetime
 from pathlib import Path
@@ -14,6 +15,10 @@ from selenium.webdriver.support.ui import WebDriverWait
 CAPTCHA_FAILURE_TEXT = "hcaptcha has to be checked"
 EMAIL_VERIFICATION_TEXT = "to proceed with your booking, you need to enter the code that is sent to the provided email address"
 CAPTCHA_LOG_PATH = Path("logs") / "captcha_failures.log"
+IP_BLOCKED_LOG_PATH = Path("logs") / "blocked_ips.log"
+IP_BLOCKED_REGEX = re.compile(
+    r"your ip \((?P<ip>\d{1,3}(?:\.\d{1,3}){3})\) has been blocked", re.IGNORECASE
+)
 
 
 def check_appointment_availability(driver):
@@ -25,6 +30,7 @@ def check_appointment_availability(driver):
     modal_found = False
     captcha_failure_detected = False
     email_verification_required = False
+    blocked_ip = None
     
     try:
         # Method 1: Check page source/text directly for the message
@@ -40,6 +46,9 @@ def check_appointment_availability(driver):
         if EMAIL_VERIFICATION_TEXT in page_text or EMAIL_VERIFICATION_TEXT in body_text:
             email_verification_required = True
             print("  ✓ Email verification modal detected - slots found!")
+        blocked_ip = _extract_blocked_ip(page_text) or _extract_blocked_ip(body_text)
+        if blocked_ip:
+            print(f"  ⚠️ Detected blocked IP message for {blocked_ip}")
         
         # Method 2: Wait for and find the specific alert element with role="alert"
         alert_element = None
@@ -88,6 +97,8 @@ def check_appointment_availability(driver):
     
     if captcha_failure_detected:
         _log_captcha_failure()
+    if blocked_ip:
+        _log_blocked_ip(blocked_ip)
     
     # Print result
     print("\n" + "="*60)
@@ -103,6 +114,12 @@ def check_appointment_availability(driver):
         print(f"   {current_url}")
         print("="*60)
         return (True, "email_verification")  # (slots_available, special_case)
+    elif blocked_ip:
+        print("❌ ACCESS BLOCKED BY IP RESTRICTION ❌")
+        print(f"   Blocked IP: {blocked_ip}")
+        print("   Logged to logs/blocked_ips.log")
+        print("="*60)
+        return (False, "ip_blocked")
     elif modal_found:
         print("⚠️  ALL SLOTS ARE BUSY ⚠️")
         print("="*60)
@@ -217,5 +234,26 @@ def _log_captcha_failure():
             log_file.write(f"{timestamp} - hCaptcha modal encountered\n")
     except Exception as log_error:
         print(f"  Warning: Failed to write captcha log: {log_error}")
+
+
+def _extract_blocked_ip(text):
+    """Extract blocked IP from text if present."""
+    if not text:
+        return None
+    match = IP_BLOCKED_REGEX.search(text)
+    if match:
+        return match.group("ip")
+    return None
+
+
+def _log_blocked_ip(ip_address):
+    """Append a timestamped log entry for blocked IP notices."""
+    try:
+        IP_BLOCKED_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with IP_BLOCKED_LOG_PATH.open("a", encoding="utf-8") as log_file:
+            log_file.write(f"{timestamp} - {ip_address}\n")
+    except Exception as log_error:
+        print(f"  Warning: Failed to write blocked IP log: {log_error}")
 
 
