@@ -45,6 +45,7 @@ PASSWORD = os.getenv("LOGIN_PASSWORD") or os.getenv("ITALY_PASSWORD", "")
 
 # Headless mode configuration (for Docker/server environments)
 # Set ITALY_HEADLESS=true or ITALY_INTERACTIVE=false to run in headless mode
+# IMPORTANT: For reCAPTCHA Enterprise, set ITALY_HEADLESS=false if possible
 HEADLESS_MODE = os.getenv("ITALY_HEADLESS", "").lower() in ("true", "1", "yes") or \
                 os.getenv("ITALY_INTERACTIVE", "").lower() in ("false", "0", "no")
 
@@ -351,22 +352,12 @@ class BrowserFingerprint:
         ]
         viewport = random.choice(viewports)
         
-        # Use Linux user agent for Docker/headless environments, macOS for local
-        # This matches the actual OS where Chrome is running
-        if HEADLESS_MODE:
-            # Linux user agents (for Docker/server environments)
-            user_agents = [
-                'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-                'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
-                'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36',
-            ]
-        else:
-            # macOS user agents (for local development)
-            user_agents = [
-                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
-                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36',
-            ]
+        # Realistic user agents (Chrome on macOS)
+        user_agents = [
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36',
+        ]
                 
         return {
             'viewport': viewport,
@@ -426,12 +417,31 @@ class ItalyLoginBot:
         self.page = None
         self.mouse = None
         self.chrome_process = None
+        self.xvfb_process = None
         self.user_data_dir = None
         self.slots_notified = False
     
     def setup_browser(self) -> None:
         """Setup browser by launching real Google Chrome and connecting via CDP."""
         Logger.log("Setting up real Google Chrome with CDP connection...")
+        
+        # Start Xvfb virtual display if in headless mode (better than --headless for reCAPTCHA)
+        self.xvfb_process = None
+        if HEADLESS_MODE:
+            Logger.log("Starting Xvfb virtual display for better reCAPTCHA compatibility...")
+            try:
+                self.xvfb_process = subprocess.Popen(
+                    ['Xvfb', ':99', '-screen', '0', '1920x1080x24', '-ac', '+extension', 'RANDR'],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
+                time.sleep(1)  # Give Xvfb time to start
+                os.environ['DISPLAY'] = ':99'
+                Logger.log("✓ Xvfb virtual display started (DISPLAY=:99)")
+            except FileNotFoundError:
+                Logger.log("⚠ Xvfb not found, falling back to --headless mode", "WARN")
+            except Exception as e:
+                Logger.log(f"⚠ Failed to start Xvfb: {e}, falling back to --headless mode", "WARN")
         
         # Create temporary user data directory for Chrome
         self.user_data_dir = tempfile.mkdtemp(prefix="chrome_user_data_")
@@ -440,39 +450,88 @@ class ItalyLoginBot:
         proxy_config = ProxyConfig.get_proxy_config()
         
         # Build Chrome launch command
+        # Base flags that work for both local and Docker
         chrome_args = [
             'google-chrome',  # or 'chromium' or 'chrome' depending on system
             '--remote-debugging-port=9222',
             f'--user-data-dir={self.user_data_dir}',
-            '--disable-dev-shm-usage',
-            '--no-sandbox',
             '--disable-blink-features=AutomationControlled',
+            # Security flags (required for Docker, safe for local)
+            '--no-sandbox',  # Required in Docker, but reCAPTCHA Enterprise still works
+            '--disable-setuid-sandbox',
+            # Shared memory: use system /dev/shm if available (Docker should provide 2GB)
+            # Only disable if /dev/shm is too small (< 512MB)
+            '--disable-dev-shm-usage',  # Fallback if /dev/shm is small
+            # GPU and rendering flags for reCAPTCHA Enterprise compatibility
+            # Use software rendering (SwiftShader) instead of disabling GPU entirely
+            '--use-gl=swiftshader',  # Software OpenGL for Docker (matches local GPU behavior)
+            '--ignore-gpu-blocklist',  # Allow GPU features even in Docker
+            '--disable-gpu-sandbox',  # Required for GPU in Docker
+            # WebGL and canvas flags (critical for reCAPTCHA Enterprise)
+            '--enable-webgl',
+            '--enable-accelerated-2d-canvas',
+            # Font and rendering flags
+            '--enable-font-antialiasing',
+            '--disable-font-subpixel-positioning',
+            # Network and security flags to match local behavior
+            '--disable-features=IsolateOrigins,site-per-process',  # Reduce fingerprint differences
+            '--disable-site-isolation-trials',  # Improve compatibility
+            # Additional flags to match local Chrome behavior more closely
+            '--disable-features=VizDisplayCompositor',  # Improve rendering compatibility
+            '--enable-features=NetworkService,NetworkServiceInProcess',  # Match local network stack
+            '--lang=it-IT',  # Set language to Italian
+            '--accept-lang=it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7',  # Accept-Language header
+            # Additional flags for Docker stability
+            '--disable-background-networking',
+            '--disable-background-timer-throttling',
+            '--disable-backgrounding-occluded-windows',
+            '--disable-breakpad',
+            '--disable-client-side-phishing-detection',
+            '--disable-component-update',
+            '--disable-default-apps',
+            '--disable-domain-reliability',
+            '--disable-features=AudioServiceOutOfProcess',
+            '--disable-hang-monitor',
+            '--disable-ipc-flooding-protection',
+            '--disable-notifications',
+            '--disable-offer-store-unmasked-wallet-cards',
+            '--disable-popup-blocking',
+            '--disable-print-preview',
+            '--disable-prompt-on-repost',
+            '--disable-renderer-backgrounding',
+            '--disable-sync',
+            '--disable-translate',
+            '--metrics-recording-only',
+            '--no-first-run',
+            '--safebrowsing-disable-auto-update',
+            '--enable-automation',  # Required for CDP
+            '--password-store=basic',
+            '--use-mock-keychain',  # For macOS compatibility in Docker
         ]
         
         # Add headless mode flags if running in Docker/server environment
+        # NOTE: reCAPTCHA Enterprise works better in non-headless mode
+        # We try to use Xvfb virtual display instead of --headless when possible
         if HEADLESS_MODE:
-            chrome_args.extend([
-                '--headless=new',
-                '--disable-gpu',
-                '--disable-software-rasterizer',
-                # Make headless look more like real browser
-                '--window-size=1920,1080',
-                '--start-maximized',
-                '--disable-blink-features=AutomationControlled',
-                '--disable-features=IsolateOrigins,site-per-process',
-                '--disable-web-security',
-                '--disable-features=VizDisplayCompositor',
-                # Enable WebGL and other features that might be checked
-                '--enable-webgl',
-                '--enable-accelerated-2d-canvas',
-                '--enable-accelerated-video-decode',
-                # Font rendering
-                '--enable-font-antialiasing',
-                '--font-render-hinting=medium',
-            ])
-            Logger.log("Running Chrome in headless mode (for Docker/server) with enhanced anti-detection")
+            if self.xvfb_process and self.xvfb_process.poll() is None:
+                # Xvfb is running - use it instead of --headless (better for reCAPTCHA)
+                chrome_args.extend([
+                    '--display=:99',  # Use Xvfb virtual display
+                    '--window-size=1920,1080',
+                    '--start-maximized',
+                ])
+                Logger.log("Running Chrome with Xvfb virtual display (better reCAPTCHA compatibility)")
+            else:
+                # Fallback to headless mode if Xvfb not available
+                chrome_args.extend([
+                    '--headless=new',  # New headless mode (better compatibility)
+                    '--disable-extensions',
+                    '--window-size=1920,1080',
+                ])
+                Logger.log("Running Chrome in headless mode (for Docker/server)")
+                Logger.log("⚠ WARNING: reCAPTCHA Enterprise may have reduced compatibility in headless mode", "WARN")
         else:
-            Logger.log("Running Chrome in interactive mode")
+            Logger.log("Running Chrome in interactive mode (recommended for reCAPTCHA Enterprise)")
         
         # Add proxy if configured
         if proxy_config:
@@ -544,60 +603,15 @@ class ItalyLoginBot:
         except Exception as e:
             raise LoginError(f"Failed to connect to Chrome via CDP: {e}. Make sure Chrome started successfully.")
         
-        # Get fingerprint configuration for realistic browser appearance
-        fingerprint = BrowserFingerprint.get_fingerprint_config()
-        
-        # Get the default context (Chrome creates one automatically when using CDP)
+        # Get the default context (Chrome creates one automatically)
         contexts = self.browser.contexts
         if contexts:
             self.context = contexts[0]
             Logger.log("✓ Using existing Chrome context")
         else:
-            # Create new context (when using CDP, context usually exists, but create if needed)
-            try:
-                self.context = self.browser.new_context()
-                Logger.log("✓ Created new Chrome context")
-            except Exception as e:
-                # If new_context fails with CDP, try to get contexts again
-                contexts = self.browser.contexts
-                if contexts:
-                    self.context = contexts[0]
-                    Logger.log("✓ Using existing Chrome context (after retry)")
-                else:
-                    raise LoginError(f"Could not create or access Chrome context: {e}")
-        
-        # Apply fingerprint settings via CDP-compatible methods
-        try:
-            # Set viewport
-            self.context.set_viewport_size(
-                width=fingerprint['viewport']['width'],
-                height=fingerprint['viewport']['height']
-            )
-            # Set extra HTTP headers
-            headers = fingerprint['extra_http_headers'].copy()
-            self.context.set_extra_http_headers(headers)
-            # Set geolocation
-            self.context.set_geolocation(fingerprint['geolocation'])
-            # Grant permissions
-            self.context.grant_permissions(fingerprint['permissions'], origin=LOGIN_URL)
-            
-            # Set user agent via CDP command (Network.setUserAgentOverride)
-            # This is important for matching the OS (Linux in Docker vs macOS locally)
-            # We'll set this after we have a page
-            
-            Logger.log("✓ Applied fingerprint configuration to context")
-        except Exception as e:
-            Logger.log(f"⚠ Could not apply all fingerprint settings: {e}", "WARN")
-            # Try to at least set viewport on page level
-            try:
-                if self.context.pages:
-                    page = self.context.pages[0]
-                    page.set_viewport_size(
-                        width=fingerprint['viewport']['width'],
-                        height=fingerprint['viewport']['height']
-                    )
-            except:
-                pass
+            # Create new context if none exists
+            self.context = self.browser.new_context()
+            Logger.log("✓ Created new Chrome context")
         
         # Get or create a page
         pages = self.context.pages
@@ -608,63 +622,11 @@ class ItalyLoginBot:
             self.page = self.context.new_page()
             Logger.log("✓ Created new Chrome page")
         
-        # Set viewport on page if not already set
-        try:
-            current_viewport = self.page.viewport_size
-            if not current_viewport or current_viewport != fingerprint['viewport']:
-                self.page.set_viewport_size(
-                    width=fingerprint['viewport']['width'],
-                    height=fingerprint['viewport']['height']
-                )
-                Logger.log(f"✓ Set viewport to {fingerprint['viewport']['width']}x{fingerprint['viewport']['height']}")
-        except Exception as e:
-            Logger.log(f"⚠ Could not set viewport: {e}", "WARN")
-        
-        # Set user agent via CDP command (Network.setUserAgentOverride)
-        # This is important for matching the OS (Linux in Docker vs macOS locally)
-        try:
-            cdp_session = self.context.new_cdp_session(self.page)
-            if cdp_session:
-                cdp_session.send('Network.setUserAgentOverride', {
-                    'userAgent': fingerprint['user_agent'],
-                    'acceptLanguage': fingerprint['extra_http_headers'].get('Accept-Language', 'it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7'),
-                })
-                Logger.log(f"✓ Set user agent via CDP: {fingerprint['user_agent'][:50]}...")
-        except Exception as cdp_e:
-            Logger.log(f"⚠ Could not set user agent via CDP (will use Chrome default): {cdp_e}", "WARN")
-        
         # Inject minimal stealth script (only webdriver override)
         # Do NOT override user-agent, viewport, or any other fingerprint properties
         # Real Chrome handles Client Hints naturally
         self.page.add_init_script(StealthPatcher.get_stealth_script())
         Logger.log("✓ Minimal stealth mode enabled (webdriver only)")
-        
-        # Inject additional anti-detection scripts for headless mode
-        if HEADLESS_MODE:
-            # Use Linux platform for headless mode (matches Docker environment)
-            platform_override = 'Linux x86_64'
-            self.page.add_init_script(f"""
-                (function() {{
-                    'use strict';
-                    // Override navigator.plugins to look more realistic
-                    Object.defineProperty(navigator, 'plugins', {{
-                        get: () => [1, 2, 3, 4, 5]
-                    }});
-                    // Override navigator.languages
-                    Object.defineProperty(navigator, 'languages', {{
-                        get: () => ['it-IT', 'it', 'en-US', 'en']
-                    }});
-                    // Override navigator.platform to match Linux (Docker environment)
-                    Object.defineProperty(navigator, 'platform', {{
-                        get: () => '{platform_override}'
-                    }});
-                    // Override chrome runtime
-                    window.chrome = {{
-                        runtime: {{}}
-                    }};
-                }})();
-            """)
-            Logger.log("✓ Additional anti-detection scripts injected for headless mode (Linux platform)")
         
         # Initialize mouse simulator
         self.mouse = MouseSimulator(self.page)
@@ -887,6 +849,15 @@ class ItalyLoginBot:
                 # 302 means redirect - login succeeded!
                 if response.status == 302:
                     Logger.log("✓ 302 redirect detected - login successful!")
+                # Status 200 might indicate an error page (like "Unavailable")
+                elif response.status == 200:
+                    # Check response body for "Unavailable" error
+                    try:
+                        response_text = response.text()
+                        if "Unavailable" in response_text:
+                            Logger.log("✗ Received 'Unavailable' error in login response", "ERROR")
+                    except:
+                        pass
         
         def handle_navigation(frame):
             """Track navigation events."""
@@ -981,6 +952,11 @@ class ItalyLoginBot:
                         Logger.log(f"✗ Login failed with status {login_response_status}", "ERROR")
                         return False
                     else:
+                        # Status 200 - check for "Unavailable" error
+                        if self.check_for_unavailable_error():
+                            Logger.log("✗ Login response returned 'Unavailable' error page", "ERROR")
+                            return False
+                        
                         # Wait a bit more for navigation
                         Logger.log("✓ Login request completed, waiting for navigation...")
                         time.sleep(2)
@@ -992,6 +968,16 @@ class ItalyLoginBot:
                                 return True
                         except:
                             pass
+                
+                # Check for "Unavailable" error on the page
+                try:
+                    if self.check_for_unavailable_error():
+                        Logger.log("✗ 'Unavailable' error detected on page", "ERROR")
+                        return False
+                except Exception as e:
+                    if "destroyed" in str(e).lower() or "navigation" in str(e).lower():
+                        # Navigation occurred - likely success
+                        pass
                 
                 # Check for errors (with navigation handling)
                 try:
@@ -1124,20 +1110,10 @@ class ItalyLoginBot:
                     Logger.log(f"✓ Switching automation to authenticated tab: {new_url or 'unknown'}")
                     return True, new_url
                 
-                # Check for error page or Unavailable page
+                # Check for error page
                 if "/Error" in current_url:
                     Logger.log(f"✗ Error page detected: {current_url}", "ERROR")
                     return False, current_url
-                
-                # Check for "Unavailable" page (Google Enterprise Risk Analysis failure)
-                try:
-                    page_title = self.page.title().lower()
-                    if "unavailable" in page_title:
-                        error_msg = self.check_for_errors()
-                        Logger.log(f"✗ Unavailable page detected (Integrity Fail): {error_msg or current_url}", "ERROR")
-                        return False, current_url
-                except:
-                    pass
                 
                 # Check if we've navigated away from login page
                 try:
@@ -1149,21 +1125,7 @@ class ItalyLoginBot:
                     """)
                     
                     if not is_login_page and current_url != initial_url and "/Error" not in current_url:
-                        # Check for Unavailable page before declaring success
-                        try:
-                            page_title = self.page.title().lower()
-                            page_text = self.page.evaluate("() => document.body ? document.body.innerText : ''").lower()
-                            if "unavailable" in page_title or "unavailable" in page_text:
-                                error_msg = self.check_for_errors()
-                                Logger.log(f"✗ Login appeared successful but Unavailable page detected: {error_msg or current_url}", "ERROR")
-                                return False, current_url
-                        except:
-                            pass
-                        
                         Logger.log(f"✓ Login successful! Navigated to: {current_url}")
-                        # Add delay to allow Google Enterprise Risk Analysis to complete server-side
-                        Logger.log("Waiting for server-side analysis to complete...")
-                        time.sleep(3)  # Give server time to process
                         return True, current_url
                 except Exception as e:
                     # Navigation might have occurred during evaluation
@@ -1183,24 +1145,21 @@ class ItalyLoginBot:
                     try:
                         final_url = self.page.url
                         if "/Error" not in final_url:
-                            # Check for Unavailable page
-                            try:
-                                page_title = self.page.title().lower()
-                                if "unavailable" in page_title:
-                                    error_msg = self.check_for_errors()
-                                    Logger.log(f"✗ Unavailable page detected after login: {error_msg or final_url}", "ERROR")
-                                    return False, final_url
-                            except:
-                                pass
-                            
                             Logger.log(f"✓ Login successful! Final URL: {final_url}")
-                            # Add delay to allow Google Enterprise Risk Analysis to complete server-side
-                            Logger.log("Waiting for server-side analysis to complete...")
-                            time.sleep(3)  # Give server time to process
                             return True, final_url
                     except:
                         # Navigation occurred
                         return True, None
+                
+                # Check for "Unavailable" error on the page
+                try:
+                    if self.check_for_unavailable_error():
+                        Logger.log("✗ 'Unavailable' error detected on page during login wait", "ERROR")
+                        return False, current_url
+                except Exception as e:
+                    if "destroyed" in str(e).lower() or "navigation" in str(e).lower():
+                        # Navigation occurred - likely success
+                        pass
                 
                 # Check for errors (with navigation handling)
                 try:
@@ -1251,6 +1210,13 @@ class ItalyLoginBot:
                         return True, new_tab_url
             
             Logger.log("✗ Timeout waiting for login completion", "ERROR")
+            # Check for "Unavailable" error before returning timeout
+            try:
+                if self.check_for_unavailable_error():
+                    Logger.log("✗ 'Unavailable' error detected - this may be why login timed out", "ERROR")
+            except:
+                pass
+            
             try:
                 final_url = self.page.url
             except:
@@ -1277,28 +1243,6 @@ class ItalyLoginBot:
             if "/Error" in self.page.url:
                 return f"Error page: {self.page.url}"
             
-            # Check page title and content for "Unavailable" (Google Enterprise Risk Analysis failure)
-            try:
-                page_title = self.page.title().lower()
-                page_content = self.page.content().lower()
-                
-                # Check for "Unavailable" - indicates Integrity Fail from Google Enterprise Risk Analysis
-                if "unavailable" in page_title or "unavailable" in page_content:
-                    # Get more context from page
-                    body_text = self.page.evaluate("() => document.body ? document.body.innerText : ''")
-                    if "unavailable" in body_text.lower():
-                        return f"Unavailable page detected (Integrity Fail) - Google Enterprise Risk Analysis blocked the request. Body: {body_text[:200]}"
-                
-                # Check for integrity/risk analysis errors
-                if "integrity" in page_content and ("fail" in page_content or "error" in page_content):
-                    return "Integrity check failed - Google Enterprise Risk Analysis detected suspicious activity"
-                
-                # Check for Italian error messages
-                if "si è verificato un errore" in page_content:
-                    return "Server error detected on page"
-            except Exception as e:
-                Logger.log(f"⚠ Error checking page content: {e}", "WARN")
-            
             # Check for error elements
             error_selectors = [
                 '.text-danger',
@@ -1310,21 +1254,48 @@ class ItalyLoginBot:
             ]
             
             for selector in error_selectors:
-                try:
-                    elements = self.page.locator(selector)
-                    if elements.count() > 0:
-                        first_error = elements.first
-                        if first_error.is_visible():
-                            error_text = first_error.text_content()
-                            if error_text and len(error_text.strip()) > 0:
-                                return error_text.strip()
-                except:
-                    continue
+                elements = self.page.locator(selector)
+                if elements.count() > 0:
+                    first_error = elements.first
+                    if first_error.is_visible():
+                        error_text = first_error.text_content()
+                        if error_text and len(error_text.strip()) > 0:
+                            return error_text.strip()
+            
+            # Check page content
+            page_content = self.page.content().lower()
+            if "si è verificato un errore" in page_content:
+                return "Server error detected on page"
             
             return None
-        except Exception as e:
-            Logger.log(f"⚠ Error in check_for_errors: {e}", "WARN")
+        except:
             return None
+    
+    def check_for_unavailable_error(self) -> bool:
+        """Check if the page shows 'Unavailable' error after login."""
+        try:
+            # Check page title
+            page_title = self.page.title()
+            if page_title and "Unavailable" in page_title:
+                Logger.log("✗ Received 'Unavailable' error after login (detected in page title)", "ERROR")
+                return True
+            
+            # Check page body content
+            body_text = self.page.locator("body").inner_text()
+            if body_text and "Unavailable" in body_text.strip():
+                Logger.log("✗ Received 'Unavailable' error after login (detected in page body)", "ERROR")
+                return True
+            
+            # Check page HTML content
+            page_content = self.page.content()
+            if page_content and "<title>Unavailable</title>" in page_content:
+                Logger.log("✗ Received 'Unavailable' error after login (detected in HTML)", "ERROR")
+                return True
+            
+            return False
+        except Exception as e:
+            Logger.log(f"⚠ Error checking for 'Unavailable' error: {e}", "WARN")
+            return False
     
     def send_debug_html_snapshot(self, reason: str) -> None:
         """Capture current HTML and send it to Telegram for debugging."""
@@ -1336,35 +1307,27 @@ class ItalyLoginBot:
         """Navigate to the 'Rezerviši' (/Services) tab after login."""
         Logger.log("Navigating to 'Rezerviši' tab (/Services)...")
         
-        # First check if we're on an Unavailable page (Integrity Fail)
-        try:
-            error = self.check_for_errors()
-            if error and ("unavailable" in error.lower() or "integrity" in error.lower()):
-                Logger.log(f"✗ Cannot navigate - {error}", "ERROR")
-                return False
-        except:
-            pass
+        # Check for "Unavailable" error before trying to find services tab
+        if self.check_for_unavailable_error():
+            Logger.log("✗ Cannot navigate to services tab - 'Unavailable' error detected", "ERROR")
+            return False
         
         try:
             nav_locator = self.page.locator(SERVICES_TAB_SELECTOR)
             nav_locator.wait_for(state="visible", timeout=ELEMENT_WAIT_TIMEOUT)
             Logger.log("✓ Services tab located")
         except PlaywrightTimeoutError:
-            # Check if we're on an Unavailable page
-            try:
-                page_title = self.page.title().lower()
-                page_text = self.page.evaluate("() => document.body ? document.body.innerText : ''").lower()
-                if "unavailable" in page_title or "unavailable" in page_text:
-                    error_msg = self.check_for_errors()
-                    Logger.log(f"✗ Services tab not found - Unavailable page detected: {error_msg or 'Integrity Fail'}", "ERROR")
-                    return False
-            except:
-                pass
             Logger.log("✗ Services tab not found on the page", "ERROR")
+            # Check if page shows "Unavailable" error
+            if self.check_for_unavailable_error():
+                Logger.log("✗ Services tab not found because page shows 'Unavailable' error", "ERROR")
             self.send_debug_html_snapshot("Services tab not found (timeout)")
             return False
         except Exception as e:
             Logger.log(f"✗ Unexpected error locating Services tab: {e}", "ERROR")
+            # Check if page shows "Unavailable" error
+            if self.check_for_unavailable_error():
+                Logger.log("✗ Error locating services tab - page shows 'Unavailable' error", "ERROR")
             self.send_debug_html_snapshot(f"Services tab error: {e}")
             return False
         
@@ -1601,6 +1564,19 @@ class ItalyLoginBot:
                 Logger.log("✓ Chrome user data directory cleaned up")
         except:
             pass
+        
+        # Stop Xvfb if it was started
+        try:
+            if self.xvfb_process and self.xvfb_process.poll() is None:
+                self.xvfb_process.terminate()
+                self.xvfb_process.wait(timeout=2)
+                Logger.log("✓ Xvfb virtual display stopped")
+        except:
+            try:
+                if self.xvfb_process:
+                    self.xvfb_process.kill()
+            except:
+                pass
     
     def wait_for_user_to_finish(self) -> None:
         """
@@ -1629,6 +1605,14 @@ class ItalyLoginBot:
         Logger.log("=" * 70)
         Logger.log("Starting Anti-Detection Login Bot")
         Logger.log("=" * 70)
+        
+        # Log headless mode status for debugging
+        if HEADLESS_MODE:
+            Logger.log(f"⚠ Headless mode ENABLED (ITALY_HEADLESS={os.getenv('ITALY_HEADLESS', 'not set')})", "WARN")
+            Logger.log("⚠ For better reCAPTCHA Enterprise compatibility, set ITALY_HEADLESS=false in .env", "WARN")
+            Logger.log("⚠ Will attempt to use Xvfb virtual display instead of --headless flag", "WARN")
+        else:
+            Logger.log("✓ Headless mode DISABLED - using interactive/Xvfb mode (better for reCAPTCHA)")
         
         # Validate credentials
         if not EMAIL or not PASSWORD:
@@ -1668,6 +1652,10 @@ class ItalyLoginBot:
                 raise LoginError(f"Login did not complete successfully. Final URL: {final_url}")
             
             Logger.log("✓ Login successful!")
+            
+            # Check for "Unavailable" error after login
+            if self.check_for_unavailable_error():
+                Logger.log("⚠ Login completed but 'Unavailable' error detected on page", "WARN")
             
             slots_found = False
             if self.navigate_to_services_tab():

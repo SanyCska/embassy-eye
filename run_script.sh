@@ -285,6 +285,8 @@ if command -v docker &> /dev/null; then
     if [ "$ITALY_USE_DOCKER" != "false" ]; then
         echo "$(date): Running Italy embassy-eye with Docker..."
         echo "$(date): ========================================"
+        # Note: ITALY_HEADLESS environment variable from .env is used by docker-compose
+        # For better reCAPTCHA compatibility, ensure ITALY_HEADLESS=false in .env (or leave unset)
         if [ -f "docker-compose.italy.yml" ]; then
             docker-compose -f docker-compose.italy.yml run --rm embassy-eye-italy
             ITALY_EXIT=$?

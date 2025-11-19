@@ -1,23 +1,32 @@
 # Dockerfile for Italy Embassy Appointment Scraper
 # Uses Playwright with real Google Chrome via CDP
+# Optimized for reCAPTCHA Enterprise compatibility in Docker
 
 FROM python:3.11-slim
+
+# Set timezone and locale for Italy (critical for reCAPTCHA Enterprise)
+ENV TZ=Europe/Rome
+ENV LANG=it_IT.UTF-8
+ENV LC_ALL=it_IT.UTF-8
+ENV DEBIAN_FRONTEND=noninteractive
 
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies for Chrome and Playwright
+# Install system dependencies for Chrome, Playwright, and reCAPTCHA Enterprise
+# This comprehensive list ensures all Chrome dependencies are available
 RUN apt-get update && apt-get install -y \
     wget \
     gnupg \
     unzip \
     curl \
     ca-certificates \
-    fonts-liberation \
+    # Core Chrome dependencies
     libasound2 \
     libatk-bridge2.0-0 \
     libatk1.0-0 \
     libatspi2.0-0 \
+    libc6 \
     libcups2 \
     libdbus-1-3 \
     libdrm2 \
@@ -34,7 +43,36 @@ RUN apt-get update && apt-get install -y \
     xdg-utils \
     libu2f-udev \
     libvulkan1 \
+    libpango-1.0-0 \
+    # Fonts (critical for reCAPTCHA Enterprise fingerprinting)
+    fonts-liberation \
+    fonts-dejavu-core \
+    fonts-dejavu \
+    fonts-noto-core \
+    fonts-noto-color-emoji \
+    fonts-noto \
+    # Timezone and locale support
+    tzdata \
+    locales \
+    # X11 and virtual display support (for non-headless mode alternative)
+    xvfb \
+    x11vnc \
+    fluxbox \
+    # Additional libraries for WebGL and GPU acceleration
+    # Note: libgl1-mesa-glx is deprecated in Debian Trixie+, use libgl1 instead
+    libgl1 \
+    libgl1-mesa-dri \
+    libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
+
+# Configure timezone
+RUN ln -sf /usr/share/zoneinfo/Europe/Rome /etc/localtime && \
+    echo "Europe/Rome" > /etc/timezone && \
+    dpkg-reconfigure -f noninteractive tzdata
+
+# Generate locale
+RUN sed -i '/it_IT.UTF-8/s/^# //g' /etc/locale.gen && \
+    locale-gen it_IT.UTF-8
 
 # Install Google Chrome using modern method (without deprecated apt-key)
 RUN wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/googlechrome-linux-keyring.gpg \
@@ -53,7 +91,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 RUN playwright install chromium || true
 
 # Create a non-root user to run Chrome (required for security)
-RUN useradd -m -u 1000 appuser
+# Note: Chrome may need some root capabilities in Docker, but we try non-root first
+RUN useradd -m -u 1000 appuser && \
+    # Allow appuser to access /dev/shm (shared memory)
+    mkdir -p /dev/shm && \
+    chmod 1777 /dev/shm
 
 # Copy application code
 COPY embassy_eye ./embassy_eye
@@ -61,15 +103,16 @@ COPY embassy_eye ./embassy_eye
 # Change ownership of application files to non-root user
 RUN chown -R appuser:appuser /app
 
-# Switch to non-root user
-USER appuser
-
-# Set environment variables
+# Set environment variables (before switching user)
 ENV CHROME_BIN=/usr/bin/google-chrome
 ENV PATH="/usr/local/bin:${PATH}"
+ENV DISPLAY=:99
 
-# Verify Chrome installation
+# Verify Chrome installation (as root before switching)
 RUN google-chrome --version || echo "Chrome version check skipped"
+
+# Switch to non-root user
+USER appuser
 
 # Run the Italy scraper
 CMD ["python", "-m", "embassy_eye.scrapers.italy.runner"]

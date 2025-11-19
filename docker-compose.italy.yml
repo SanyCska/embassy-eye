@@ -1,14 +1,25 @@
-version: '3.8'
-
 services:
   embassy-eye-italy:
+    platform: linux/amd64
     build:
       context: .
       dockerfile: Dockerfile.italy
     container_name: embassy-eye-italy
-    # IMPORTANT: Uncomment the line below if your VPN is running on the host
-    # This allows the container to use the host's VPN connection
+    # IMPORTANT: Use host network mode to match local behavior
+    # This ensures Chrome sees the same network fingerprint as local execution
+    # Critical for reCAPTCHA Enterprise validation
     network_mode: "host"
+    # CRITICAL: Increase shared memory size for Chrome
+    # Chrome needs large /dev/shm for reCAPTCHA Enterprise to work properly
+    # Default Docker /dev/shm is 64MB, which is too small
+    shm_size: 2gb
+    # Security options - allow Chrome to run properly
+    security_opt:
+      - seccomp=unconfined  # Required for Chrome sandbox alternatives
+    # Capabilities needed for Chrome
+    cap_add:
+      - SYS_ADMIN  # Required for Chrome sandbox
+    # Environment variables
     environment:
       # Telegram configuration - set these in .env file or override here
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
@@ -25,8 +36,15 @@ services:
       - PROXY_SERVER=${PROXY_SERVER:-}
       - PROXY_USERNAME=${PROXY_USERNAME:-}
       - PROXY_PASSWORD=${PROXY_PASSWORD:-}
-      # Headless mode (set to true for Docker/server, false for local dev)
-      - ITALY_HEADLESS=${ITALY_HEADLESS:-true}
+      # Headless mode (set to false for better reCAPTCHA Enterprise compatibility)
+      # reCAPTCHA Enterprise often fails in headless mode
+      # If you must use headless, set ITALY_HEADLESS=true
+      - ITALY_HEADLESS=${ITALY_HEADLESS:-false}
+      # Timezone (should match Dockerfile, but can be overridden)
+      - TZ=Europe/Rome
+      # Locale
+      - LANG=it_IT.UTF-8
+      - LC_ALL=it_IT.UTF-8
     env_file:
       - .env
     volumes:
