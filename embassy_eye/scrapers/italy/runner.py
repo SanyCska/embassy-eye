@@ -1006,9 +1006,9 @@ class ItalyLoginBot:
                     except:
                         pass
             
-            # Check for redirect to dashboard/home
+            # Check for redirect to dashboard/home/user area
             if "/Error" not in url and initial_url != url:
-                if "/Home" in url or "/Dashboard" in url or "/Account" in url:
+                if "/Home" in url or "/Dashboard" in url or "/Account" in url or "/UserArea" in url:
                     login_success = True
         
         def handle_new_page(page: Page):
@@ -1073,7 +1073,16 @@ class ItalyLoginBot:
                     Logger.log(f"✗ Error page detected: {current_url}", "ERROR")
                     return False, current_url
                 
-                # Check if we've navigated away from login page
+                # Check if we've navigated to a valid authenticated page
+                # Valid pages: /UserArea, /Home, /Dashboard, /Account, /Services
+                valid_authenticated_paths = ["/UserArea", "/Home", "/Dashboard", "/Account", "/Services"]
+                is_valid_page = any(path in current_url for path in valid_authenticated_paths)
+                
+                if is_valid_page and "/Error" not in current_url and "/Home/Login" not in current_url:
+                    Logger.log(f"✓ Login successful! Navigated to authenticated page: {current_url}")
+                    return True, current_url
+                
+                # Check if we've navigated away from login page (fallback check)
                 try:
                     is_login_page = self.page.evaluate(f"""
                         () => {{
@@ -1168,6 +1177,20 @@ class ItalyLoginBot:
                         return True, new_tab_url
             
             Logger.log("✗ Timeout waiting for login completion", "ERROR")
+            
+            # Check final URL - if it's a valid authenticated page, login actually succeeded
+            try:
+                final_url = self.page.url
+                valid_authenticated_paths = ["/UserArea", "/Home", "/Dashboard", "/Account", "/Services"]
+                is_valid_page = any(path in final_url for path in valid_authenticated_paths)
+                
+                if is_valid_page and "/Error" not in final_url and "/Home/Login" not in final_url:
+                    Logger.log(f"✓ Login actually succeeded! URL is valid authenticated page: {final_url}")
+                    Logger.log("⚠ Timeout occurred but we're on a valid page - continuing...")
+                    return True, final_url
+            except:
+                final_url = None
+            
             # Check for "Unavailable" error before returning timeout
             try:
                 if self.check_for_unavailable_error():
@@ -1175,10 +1198,7 @@ class ItalyLoginBot:
             except:
                 pass
             
-            try:
-                final_url = self.page.url
-            except:
-                final_url = None
+            # Save HTML snapshot if not "Unavailable" or error page
             self.send_debug_html_snapshot("Login completion timeout")
             return False, final_url
             
@@ -1256,10 +1276,39 @@ class ItalyLoginBot:
             return False
     
     def send_debug_html_snapshot(self, reason: str) -> None:
-        """Capture current HTML and send it to Telegram for debugging."""
-        # Disabled: No longer sending HTML debug snapshots to Telegram
-        Logger.log(f"⚠ Debug snapshot requested (reason: {reason}) - not sending to Telegram")
-        return
+        """Capture current HTML and save it to file for debugging."""
+        try:
+            # Check if page is "Unavailable" or error page - skip saving in those cases
+            if self.check_for_unavailable_error():
+                Logger.log(f"⚠ Debug snapshot skipped - page shows 'Unavailable' error", "WARN")
+                return
+            
+            current_url = self.page.url
+            if "/Error" in current_url:
+                Logger.log(f"⚠ Debug snapshot skipped - page is error page: {current_url}", "WARN")
+                return
+            
+            # Save HTML to file
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            safe_reason = reason.replace(" ", "_").replace("/", "_")[:50]
+            filename = f"italy_debug_{safe_reason}_{timestamp}.html"
+            
+            # Ensure screenshots directory exists
+            screenshots_dir = "screenshots"
+            os.makedirs(screenshots_dir, exist_ok=True)
+            filepath = os.path.join(screenshots_dir, filename)
+            
+            # Get page HTML
+            html_content = self.page.content()
+            
+            # Save to file
+            with open(filepath, 'w', encoding='utf-8') as f:
+                f.write(html_content)
+            
+            Logger.log(f"✓ Debug HTML snapshot saved: {filepath} (reason: {reason})")
+            Logger.log(f"  URL: {current_url}")
+        except Exception as e:
+            Logger.log(f"⚠ Failed to save debug HTML snapshot: {e}", "WARN")
     
     def navigate_to_services_tab(self) -> bool:
         """Navigate to the 'Rezerviši' (/Services) tab after login."""
