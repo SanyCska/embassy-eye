@@ -31,7 +31,7 @@ IP_BLOCKED_REGEX = re.compile(
 def check_appointment_availability(driver):
     """Check for appointment availability after clicking the next button."""
     print("\n=== Waiting for modal to appear (if any) ===")
-    time.sleep(3)  # Initial wait
+    time.sleep(6)  # Initial wait
     
     print("=== Checking for appointment availability ===")
     modal_found = False
@@ -60,7 +60,7 @@ def check_appointment_availability(driver):
         # Method 2: Wait for and find the specific alert element with role="alert"
         alert_element = None
         try:
-            alert_element = WebDriverWait(driver, 3).until(
+            alert_element = WebDriverWait(driver, 6).until(
                 EC.presence_of_element_located((By.XPATH, "//*[@role='alert']"))
             )
             if alert_element and alert_element.is_displayed():
