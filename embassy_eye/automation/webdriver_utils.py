@@ -151,6 +151,7 @@ def test_network_connectivity():
     
     import socket
     import subprocess
+    import shutil
     
     tests_passed = 0
     tests_failed = 0
@@ -212,13 +213,27 @@ def test_network_connectivity():
     print("  [5] Checking for VPN interface...")
     sys.stdout.flush()
     try:
-        result = subprocess.run(['ip', 'link', 'show'], capture_output=True, text=True, timeout=5)
-        if 'wg' in result.stdout.lower() or 'wireguard' in result.stdout.lower():
-            print("    ✓ VPN interface detected")
-            tests_passed += 1
+        # Check if 'ip' command is available
+        ip_cmd = shutil.which('ip')
+        if not ip_cmd:
+            print("    ⚠ 'ip' command not available (likely running in Docker container)")
+            print("    ⚠ Skipping VPN interface check")
+            tests_passed += 1  # Not critical
         else:
-            print("    ⚠ VPN interface not found (might be using host network)")
-            tests_passed += 1  # Not a failure, just info
+            result = subprocess.run(['ip', 'link', 'show'], capture_output=True, text=True, timeout=5, check=False)
+            if result.returncode == 0:
+                if 'wg' in result.stdout.lower() or 'wireguard' in result.stdout.lower():
+                    print("    ✓ VPN interface detected")
+                    tests_passed += 1
+                else:
+                    print("    ⚠ VPN interface not found (might be using host network)")
+                    tests_passed += 1  # Not a failure, just info
+            else:
+                print(f"    ⚠ Could not check VPN interface: command returned {result.returncode}")
+                tests_passed += 1  # Not critical
+    except FileNotFoundError:
+        print("    ⚠ 'ip' command not found (likely running in Docker container)")
+        tests_passed += 1  # Not critical
     except Exception as e:
         print(f"    ⚠ Could not check VPN interface: {e}")
         tests_passed += 1  # Not critical
@@ -227,13 +242,27 @@ def test_network_connectivity():
     print("  [6] Checking routing table...")
     sys.stdout.flush()
     try:
-        result = subprocess.run(['ip', 'route'], capture_output=True, text=True, timeout=5)
-        print(f"    Routing info: {len(result.stdout.splitlines())} routes found")
-        # Show first few routes
-        routes = result.stdout.splitlines()[:3]
-        for route in routes:
-            print(f"      - {route}")
-        tests_passed += 1
+        # Check if 'ip' command is available
+        ip_cmd = shutil.which('ip')
+        if not ip_cmd:
+            print("    ⚠ 'ip' command not available (likely running in Docker container)")
+            print("    ⚠ Skipping routing table check")
+            tests_passed += 1  # Not critical
+        else:
+            result = subprocess.run(['ip', 'route'], capture_output=True, text=True, timeout=5, check=False)
+            if result.returncode == 0:
+                routes = result.stdout.splitlines()
+                print(f"    Routing info: {len(routes)} routes found")
+                # Show first few routes
+                for route in routes[:3]:
+                    print(f"      - {route}")
+                tests_passed += 1
+            else:
+                print(f"    ⚠ Could not check routing: command returned {result.returncode}")
+                tests_passed += 1  # Not critical
+    except FileNotFoundError:
+        print("    ⚠ 'ip' command not found (likely running in Docker container)")
+        tests_passed += 1  # Not critical
     except Exception as e:
         print(f"    ⚠ Could not check routing: {e}")
         tests_passed += 1  # Not critical

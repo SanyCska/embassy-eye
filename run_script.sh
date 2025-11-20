@@ -166,10 +166,60 @@ ensure_vpn_ip_allowed() {
     return 1
 }
 
+# Test connectivity to target website
+test_target_website_connectivity() {
+    local url="https://konzinfobooking.mfa.gov.hu/"
+    local timeout=10
+    
+    echo "$(date): Testing connectivity to target website ($url)..."
+    
+    # Try using curl first (more reliable)
+    if command -v curl &> /dev/null; then
+        if curl -s --max-time "$timeout" --head "$url" &>/dev/null; then
+            echo "$(date): ✓ Target website: OK (curl test passed)"
+            return 0
+        else
+            echo "$(date): ✗ Target website: FAILED (curl test failed)"
+            return 1
+        fi
+    # Fallback to wget if curl is not available
+    elif command -v wget &> /dev/null; then
+        if wget --spider --timeout="$timeout" --tries=1 "$url" &>/dev/null 2>&1; then
+            echo "$(date): ✓ Target website: OK (wget test passed)"
+            return 0
+        else
+            echo "$(date): ✗ Target website: FAILED (wget test failed)"
+            return 1
+        fi
+    # Last resort: try Python
+    elif command -v python3 &> /dev/null; then
+        if python3 -c "
+import urllib.request
+import ssl
+try:
+    context = ssl.create_default_context()
+    response = urllib.request.urlopen('$url', timeout=$timeout, context=context)
+    exit(0)
+except:
+    exit(1)
+" 2>/dev/null; then
+            echo "$(date): ✓ Target website: OK (Python test passed)"
+            return 0
+        else
+            echo "$(date): ✗ Target website: FAILED (Python test failed)"
+            return 1
+        fi
+    else
+        echo "$(date): ⚠ Cannot test connectivity: curl, wget, and python3 not available"
+        return 1
+    fi
+}
+
 # Wrapper to start VPN and ensure IP is acceptable
 establish_vpn_connection() {
     local tried_vpns=()
     local total_vpns=${#VPN_OPTIONS[@]}
+    local max_connectivity_attempts=5
 
     while [ ${#tried_vpns[@]} -lt $total_vpns ]; do
         select_random_vpn
@@ -187,7 +237,32 @@ establish_vpn_connection() {
         fi
 
         if ensure_vpn_ip_allowed; then
-            return 0
+            # Test connectivity to target website
+            local connectivity_attempt=1
+            local connectivity_ok=false
+            
+            while [ $connectivity_attempt -le $max_connectivity_attempts ]; do
+                if test_target_website_connectivity; then
+                    connectivity_ok=true
+                    break
+                else
+                    echo "$(date): Connectivity test failed. Attempt $connectivity_attempt/$max_connectivity_attempts"
+                    if [ $connectivity_attempt -lt $max_connectivity_attempts ]; then
+                        echo "$(date): Waiting 3 seconds before retry..."
+                        sleep 3
+                    fi
+                    connectivity_attempt=$((connectivity_attempt + 1))
+                fi
+            done
+            
+            if [ "$connectivity_ok" = true ]; then
+                echo "$(date): VPN connection established and target website is reachable"
+                return 0
+            else
+                VPN_COUNTRY=$(get_vpn_country "$VPN_NAME")
+                echo "$(date): WARNING: Target website not reachable via $VPN_NAME - $VPN_COUNTRY. Trying another server..."
+                shutdown_vpn
+            fi
         else
             VPN_COUNTRY=$(get_vpn_country "$VPN_NAME")
             echo "$(date): WARNING: VPN IP validation failed for $VPN_NAME - $VPN_COUNTRY. Trying another server..."
