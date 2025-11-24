@@ -7,6 +7,7 @@ Automated appointment monitoring system for the Italian Embassy appointment book
 - 🔐 **Automated Login**: Handles reCAPTCHA Enterprise login automatically
 - 🔍 **Slot Monitoring**: Checks multiple booking services for available slots
 - 📱 **Telegram Notifications**: Sends instant notifications when slots are found
+- 🔄 **Credential Rotation**: Cycles through multiple Italy user accounts automatically
 - 🎭 **Anti-Detection**: Uses real Google Chrome via CDP (Chrome DevTools Protocol) for natural browser fingerprint
 - 🐳 **Docker Support**: Easy deployment with Docker and Docker Compose
 - ⏰ **Scheduled Execution**: Can run automatically on a schedule
@@ -80,6 +81,24 @@ TELEGRAM_USER_ID=your_user_id_here
 ITALY_EMAIL=your_email@example.com
 ITALY_PASSWORD=your_password_here
 
+# Optional: Rotate across multiple accounts (JSON or newline-separated text)
+# JSON example:
+# ITALY_USERS='[
+#   {"email":"primary@example.com","password":"pass1","label":"Primary"},
+#   {"email":"backup@example.com","password":"pass2","label":"Backup"}
+# ]'
+# Text example (use $'...' to keep newlines):
+# ITALY_USERS=$'primary@example.com|pass1|Primary\nbackup@example.com|pass2|Backup'
+
+# Optional: Load the rotation list from disk (same formats as above)
+ITALY_USERS_FILE=/path/to/italy_users.txt
+
+# Optional: Persist the round-robin pointer somewhere specific
+ITALY_ROTATION_STATE_FILE=/app/state/italy_user_rotation.json
+
+# Optional: Store the list of blocked credentials detected at runtime
+ITALY_BLOCKED_USERS_FILE=/app/state/italy_blocked_accounts.json
+
 # Optional: Custom login URL
 ITALY_LOGIN_URL=https://prenotami.esteri.it/
 
@@ -92,6 +111,13 @@ PROXY_PASSWORD=proxy_pass
 **Getting your Telegram credentials:**
 - **Bot Token**: Create a bot using [@BotFather](https://t.me/BotFather) on Telegram
 - **User ID**: Get your user ID from [@userinfobot](https://t.me/userinfobot) on Telegram
+
+### Credential Rotation
+
+- Define multiple accounts either via `ITALY_USERS` (JSON or newline-separated `email|password|label`) or by pointing `ITALY_USERS_FILE` to a file that contains the same content.
+- On every run the scraper picks the next account in round-robin order and stores the pointer in `ITALY_ROTATION_STATE_FILE` (defaults to `italy_user_rotation.json` in the working directory).
+- You can still override the rotation temporarily by setting `LOGIN_EMAIL` and `LOGIN_PASSWORD` for a one-off run.
+- If the site shows the “Account bloccato / Account Blocked” page after login, the script automatically marks that account as blocked and writes it to `ITALY_BLOCKED_USERS_FILE` so future runs skip it.
 
 ### Booking Service IDs
 

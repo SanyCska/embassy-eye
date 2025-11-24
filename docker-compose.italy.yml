@@ -15,6 +15,10 @@ services:
       # Italy login credentials
       - ITALY_EMAIL=${ITALY_EMAIL}
       - ITALY_PASSWORD=${ITALY_PASSWORD}
+      - ITALY_USERS=${ITALY_USERS:-}
+      - ITALY_USERS_FILE=${ITALY_USERS_FILE:-}
+      - ITALY_ROTATION_STATE_FILE=${ITALY_ROTATION_STATE_FILE:-italy_user_rotation.json}
+      - ITALY_BLOCKED_USERS_FILE=${ITALY_BLOCKED_USERS_FILE:-italy_blocked_accounts.json}
       # Alternative env var names (for compatibility)
       - LOGIN_EMAIL=${ITALY_EMAIL}
       - LOGIN_PASSWORD=${ITALY_PASSWORD}

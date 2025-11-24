@@ -208,6 +208,8 @@ __marimo__/
 
 # Screenshots
 screenshots/
+italy_user_rotation.json
+italy_blocked_accounts.json
 
 # Cron logs
 cron.log

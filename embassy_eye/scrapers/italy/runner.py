@@ -23,6 +23,9 @@ import datetime
 import subprocess
 import tempfile
 import signal
+import json
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional, Dict, Any, Tuple, List
 from dotenv import load_dotenv
 from playwright.sync_api import (
@@ -40,8 +43,13 @@ load_dotenv()
 
 # Configuration
 LOGIN_URL = os.getenv("ITALY_LOGIN_URL", "https://prenotami.esteri.it/")
-EMAIL = os.getenv("LOGIN_EMAIL") or os.getenv("ITALY_EMAIL", "")
-PASSWORD = os.getenv("LOGIN_PASSWORD") or os.getenv("ITALY_PASSWORD", "")
+LOGIN_EMAIL_OVERRIDE = (os.getenv("LOGIN_EMAIL") or "").strip()
+LOGIN_PASSWORD_OVERRIDE = (os.getenv("LOGIN_PASSWORD") or "").strip()
+DEFAULT_ITALY_EMAIL = (os.getenv("ITALY_EMAIL") or "").strip()
+DEFAULT_ITALY_PASSWORD = (os.getenv("ITALY_PASSWORD") or "").strip()
+BLOCKED_USERS_FILE = Path(
+    (os.getenv("ITALY_BLOCKED_USERS_FILE") or "italy_blocked_accounts.json")
+).expanduser()
 
 # Headless mode configuration (for Docker/server environments)
 # Set ITALY_HEADLESS=true or ITALY_INTERACTIVE=false to run in headless mode
@@ -98,6 +106,276 @@ class Logger:
         sys.stdout.flush()
 
 
+@dataclass
+class ItalyCredentials:
+    """Container for a single Italy login credential."""
+    email: str
+    password: str
+    label: Optional[str] = None
+
+
+class ItalyCredentialManager:
+    """
+    Handle credential resolution and rotation for the Italy scraper.
+    
+    Priority order:
+        1. Explicit override via LOGIN_EMAIL / LOGIN_PASSWORD
+        2. Rotating list provided via ITALY_USERS / ITALY_USERS_FILE
+        3. Legacy single pair ITALY_EMAIL / ITALY_PASSWORD
+    """
+
+    def __init__(self):
+        self.override_email = LOGIN_EMAIL_OVERRIDE
+        self.override_password = LOGIN_PASSWORD_OVERRIDE
+        self.default_email = DEFAULT_ITALY_EMAIL
+        self.default_password = DEFAULT_ITALY_PASSWORD
+        self.rotation_state_file = Path(
+            (os.getenv("ITALY_ROTATION_STATE_FILE") or "italy_user_rotation.json")
+        ).expanduser()
+        self.blocked_state_file = BLOCKED_USERS_FILE
+        self.rotation_users = self._load_rotation_users()
+        self.blocked_accounts = self._load_blocked_accounts()
+
+    def get_credentials(self) -> Optional[ItalyCredentials]:
+        """Return the credential that should be used for the current run."""
+        if self.override_email or self.override_password:
+            if self.override_email and self.override_password:
+                if self._is_blocked(self.override_email):
+                    Logger.log(
+                        f"✗ Override credentials {self.override_email} are blocked. Remove override to continue.",
+                        "ERROR",
+                    )
+                    return None
+                return ItalyCredentials(
+                    email=self.override_email,
+                    password=self.override_password,
+                    label="LOGIN_EMAIL override",
+                )
+            Logger.log("✗ LOGIN_EMAIL and LOGIN_PASSWORD must both be set", "ERROR")
+            return None
+
+        if self.rotation_users:
+            attempts = 0
+            total_accounts = len(self.rotation_users)
+            while attempts < total_accounts:
+                rotation_result = self._next_rotated_user()
+                if not rotation_result:
+                    break
+                credential, slot_index = rotation_result
+                if self._is_blocked(credential.email):
+                    Logger.log(
+                        f"ℹ Skipping blocked Italy credential {credential.email} (slot {slot_index + 1}/{total_accounts})",
+                        "INFO",
+                    )
+                    attempts += 1
+                    continue
+                Logger.log(
+                    f"Using rotated Italy credential {slot_index + 1}/{total_accounts}: {credential.email}"
+                )
+                return credential
+            Logger.log("✗ All rotated Italy credentials are blocked. Update ITALY_USERS.", "ERROR")
+            return None
+
+        if self.default_email and self.default_password:
+            if self._is_blocked(self.default_email):
+                Logger.log(
+                    f"✗ Default credentials {self.default_email} are blocked. Provide new ITALY_USERS or override.",
+                    "ERROR",
+                )
+                return None
+            return ItalyCredentials(
+                email=self.default_email,
+                password=self.default_password,
+                label="ITALY_EMAIL default",
+            )
+
+        return None
+
+    def _load_rotation_users(self) -> List[ItalyCredentials]:
+        """Parse ITALY_USERS or ITALY_USERS_FILE content."""
+        raw_config = ""
+        users_file = (os.getenv("ITALY_USERS_FILE") or "").strip()
+
+        if users_file:
+            file_path = Path(users_file).expanduser()
+            try:
+                raw_config = file_path.read_text(encoding="utf-8")
+            except FileNotFoundError:
+                Logger.log(f"⚠ ITALY_USERS_FILE not found: {file_path}", "WARN")
+            except Exception as exc:
+                Logger.log(f"⚠ Unable to read ITALY_USERS_FILE ({file_path}): {exc}", "WARN")
+
+        if not raw_config:
+            raw_config = (os.getenv("ITALY_USERS") or "").strip()
+
+        if not raw_config:
+            return []
+
+        # Try JSON list first
+        try:
+            parsed = json.loads(raw_config)
+        except json.JSONDecodeError:
+            parsed = None
+
+        if isinstance(parsed, list):
+            users: List[ItalyCredentials] = []
+            for idx, item in enumerate(parsed, start=1):
+                if not isinstance(item, dict):
+                    Logger.log(f"⚠ Skipping Italy user #{idx}: expected object, got {type(item)}", "WARN")
+                    continue
+                email = (item.get("email") or item.get("user") or item.get("username") or "").strip()
+                password = (item.get("password") or item.get("pass") or "").strip()
+                label = (item.get("label") or item.get("name") or item.get("alias") or "").strip() or None
+                if not email or not password:
+                    Logger.log(f"⚠ Skipping Italy user #{idx}: missing email/password fields", "WARN")
+                    continue
+                users.append(ItalyCredentials(email=email, password=password, label=label))
+            return users
+
+        return self._parse_delimited_users(raw_config)
+
+    @staticmethod
+    def _parse_delimited_users(raw_config: str) -> List[ItalyCredentials]:
+        """
+        Parse newline / comma / semicolon separated entries.
+        Supported delimiters inside each entry: '|', ':', ','.
+        Format per entry: email|password[|optional_label]
+        """
+        normalized = raw_config.replace(";", "\n").replace(",", "\n")
+        users: List[ItalyCredentials] = []
+
+        for entry in normalized.splitlines():
+            value = entry.strip()
+            if not value:
+                continue
+
+            parts: List[str] = []
+            for delimiter in ("|", ":", ",", "\t", " "):
+                if delimiter in value:
+                    parts = [segment.strip() for segment in value.split(delimiter)]
+                    break
+
+            if len(parts) < 2:
+                Logger.log(
+                    f"⚠ Could not parse Italy user entry '{value}'. Expected format email|password or JSON list.",
+                    "WARN",
+                )
+                continue
+
+            email = parts[0]
+            password = parts[1]
+            label = parts[2] if len(parts) > 2 else None
+            users.append(ItalyCredentials(email=email, password=password, label=label))
+
+        return users
+
+    def _next_rotated_user(self) -> Optional[Tuple[ItalyCredentials, int]]:
+        """Return the next user in rotation and persist the pointer."""
+        if not self.rotation_users:
+            return None
+
+        current_index = self._read_rotation_index()
+        slot_index = current_index % len(self.rotation_users)
+        selected = self.rotation_users[slot_index]
+        next_index = (current_index + 1) % len(self.rotation_users)
+        self._write_rotation_index(next_index, selected, slot_index)
+        return selected, slot_index
+
+    def _read_rotation_index(self) -> int:
+        """Read the saved next index from disk."""
+        try:
+            data = json.loads(self.rotation_state_file.read_text(encoding="utf-8"))
+            index = int(data.get("next_index", 0))
+            return max(index, 0)
+        except FileNotFoundError:
+            return 0
+        except Exception as exc:
+            Logger.log(
+                f"⚠ Failed to read Italy rotation state {self.rotation_state_file}: {exc}",
+                "WARN",
+            )
+            return 0
+
+    def _write_rotation_index(self, next_index: int, selected: ItalyCredentials, current_index: int) -> None:
+        """Persist the next rotation index for future runs."""
+        payload = {
+            "next_index": next_index,
+            "updated_at": datetime.datetime.utcnow().isoformat() + "Z",
+            "total_accounts": len(self.rotation_users),
+            "last_selected": {
+                "email": selected.email,
+                "label": selected.label,
+                "index": current_index,
+            },
+        }
+
+        tmp_path = self.rotation_state_file.with_name(self.rotation_state_file.name + ".tmp")
+        try:
+            self.rotation_state_file.parent.mkdir(parents=True, exist_ok=True)
+            tmp_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+            tmp_path.replace(self.rotation_state_file)
+        except Exception as exc:
+            Logger.log(
+                f"⚠ Failed to persist Italy rotation state to {self.rotation_state_file}: {exc}",
+                "WARN",
+            )
+
+    def _load_blocked_accounts(self) -> Dict[str, Dict[str, Any]]:
+        """Load blocked accounts map keyed by lowercase email."""
+        try:
+            data = json.loads(self.blocked_state_file.read_text(encoding="utf-8"))
+            blocked_entries = data.get("blocked", [])
+        except FileNotFoundError:
+            return {}
+        except Exception as exc:
+            Logger.log(
+                f"⚠ Failed to read Italy blocked accounts {self.blocked_state_file}: {exc}",
+                "WARN",
+            )
+            return {}
+
+        accounts: Dict[str, Dict[str, Any]] = {}
+        for entry in blocked_entries:
+            email = (entry.get("email") or "").strip().lower()
+            if not email:
+                continue
+            accounts[email] = entry
+        return accounts
+
+    def _is_blocked(self, email: str) -> bool:
+        return email.strip().lower() in self.blocked_accounts
+
+    def mark_blocked(self, credential: ItalyCredentials, reason: str) -> None:
+        """Persist credential as blocked."""
+        if not credential or not credential.email:
+            return
+
+        email_key = credential.email.strip().lower()
+        entry = {
+            "email": credential.email,
+            "label": credential.label,
+            "reason": reason,
+            "blocked_at": datetime.datetime.utcnow().isoformat() + "Z",
+        }
+        self.blocked_accounts[email_key] = entry
+
+        payload = {
+            "blocked": list(self.blocked_accounts.values()),
+            "updated_at": datetime.datetime.utcnow().isoformat() + "Z",
+            "count": len(self.blocked_accounts),
+        }
+
+        tmp_path = self.blocked_state_file.with_name(self.blocked_state_file.name + ".tmp")
+        try:
+            self.blocked_state_file.parent.mkdir(parents=True, exist_ok=True)
+            tmp_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+            tmp_path.replace(self.blocked_state_file)
+            Logger.log(f"⚠ Stored blocked Italy credential {credential.email}", "WARN")
+        except Exception as exc:
+            Logger.log(
+                f"⚠ Failed to persist blocked Italy credential to {self.blocked_state_file}: {exc}",
+                "WARN",
+            )
 class StealthPatcher:
     """Minimal stealth mode - only removes webdriver property."""
     
@@ -409,7 +687,11 @@ class ProxyConfig:
 class ItalyLoginBot:
     """Main bot class for Italy login with anti-detection."""
     
-    def __init__(self):
+    def __init__(
+        self,
+        credentials: Optional[ItalyCredentials] = None,
+        credential_manager: Optional[ItalyCredentialManager] = None,
+    ):
         self.playwright_instance = None
         self.browser = None
         self.context = None
@@ -419,6 +701,53 @@ class ItalyLoginBot:
         self.xvfb_process = None
         self.user_data_dir = None
         self.slots_notified = False
+        self.credentials: Optional[ItalyCredentials] = credentials
+        self.credential_manager = credential_manager or ItalyCredentialManager()
+
+    def _handle_account_blocked(self, context: str) -> bool:
+        """Persist blocked account info and stop further processing."""
+        if not self.credentials:
+            return False
+
+        reason = f"Account blocked page detected ({context})"
+        Logger.log(f"✗ {reason}", "ERROR")
+
+        if self.credential_manager:
+            self.credential_manager.mark_blocked(self.credentials, reason)
+        else:
+            Logger.log("⚠ Credential manager unavailable; cannot record blocked account.", "WARN")
+
+        self.send_debug_html_snapshot("account_blocked")
+        return True
+
+    def is_account_blocked_page(self) -> bool:
+        """Detect the known 'Account Blocked' message on the page."""
+        keywords = ["account bloccato", "account blocked"]
+        try:
+            headings = []
+            heading_locator = self.page.locator("h1, h2, h3")
+            try:
+                headings = heading_locator.all_text_contents()
+            except Exception:
+                pass
+
+            body_text = ""
+            try:
+                body_text = self.page.inner_text("body")
+            except Exception:
+                pass
+
+            combined = " ".join(headings + [body_text]).lower()
+            return any(keyword in combined for keyword in keywords)
+        except Exception as exc:
+            Logger.log(f"⚠ Error while checking for blocked account message: {exc}", "WARN")
+            return False
+
+    def detect_account_blocked(self, context: str) -> bool:
+        """Check for blocked account UI and persist state."""
+        if self.is_account_blocked_page():
+            return self._handle_account_blocked(context)
+        return False
     
     def setup_browser(self) -> None:
         """Setup browser by launching real Google Chrome and connecting via CDP."""
@@ -699,6 +1028,8 @@ class ItalyLoginBot:
     def fill_login_form(self) -> None:
         """Fill login form with human-like behavior."""
         Logger.log("Filling login form...")
+        if not self.credentials:
+            raise LoginError("Credentials were not initialized before filling the login form.")
         
         # Check current URL and page state before waiting for form
         try:
@@ -758,7 +1089,7 @@ class ItalyLoginBot:
         HumanBehavior.random_delay(300, 600)
         
         # Type email
-        TypingSimulator.type_human_like(self.page, EMAIL_SELECTOR, EMAIL)
+        TypingSimulator.type_human_like(self.page, EMAIL_SELECTOR, self.credentials.email)
         HumanBehavior.random_delay(400, 1200)
         
         # Fill password field
@@ -771,7 +1102,7 @@ class ItalyLoginBot:
         HumanBehavior.random_delay(300, 600)
         
         # Type password
-        TypingSimulator.type_human_like(self.page, PASSWORD_SELECTOR, PASSWORD)
+        TypingSimulator.type_human_like(self.page, PASSWORD_SELECTOR, self.credentials.password)
         HumanBehavior.random_delay(800, 1800)
         
         # Trigger Parsley.js validation (required for button to become enabled)
@@ -1675,12 +2006,18 @@ class ItalyLoginBot:
         Logger.log("Starting Anti-Detection Login Bot")
         Logger.log("=" * 70)
         
-        # Validate credentials
-        if not EMAIL or not PASSWORD:
-            Logger.log("✗ Error: LOGIN_EMAIL/ITALY_EMAIL and LOGIN_PASSWORD/ITALY_PASSWORD must be set in .env", "ERROR")
+        if not self.credentials:
+            self.credentials = self.credential_manager.get_credentials()
+        
+        if not self.credentials:
+            Logger.log(
+                "✗ Error: Provide Italy credentials via LOGIN_EMAIL/LOGIN_PASSWORD, "
+                "ITALY_EMAIL/ITALY_PASSWORD, or ITALY_USERS / ITALY_USERS_FILE.",
+                "ERROR",
+            )
             return None
         
-        Logger.log(f"Using email: {EMAIL}")
+        Logger.log(f"Using email: {self.credentials.email}")
         Logger.log(f"Login URL: {LOGIN_URL}")
         
         try:
@@ -1722,11 +2059,15 @@ class ItalyLoginBot:
             success, final_url = self.wait_for_login_completion()
             
             if not success:
+                if self.detect_account_blocked("login_failed"):
+                    return None
                 reason = f"Login completion failed (final URL: {final_url})"
                 self.send_debug_html_snapshot(reason)
                 raise LoginError(f"Login did not complete successfully. Final URL: {final_url}")
             
             Logger.log("✓ Login successful!")
+            if self.detect_account_blocked("post_login"):
+                return None
             
             # Check for "Unavailable" error after login
             if self.check_for_unavailable_error():
