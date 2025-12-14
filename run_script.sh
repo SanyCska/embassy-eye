@@ -298,7 +298,16 @@ trap shutdown_vpn EXIT INT TERM
 
 # Load environment variables from .env file
 if [ -f .env ]; then
-    export $(cat .env | grep -v '^#' | xargs)
+    set -a
+    # Load .env while filtering out comments and empty lines
+    while IFS= read -r line || [ -n "$line" ]; do
+        # Skip comments and empty lines
+        [[ "$line" =~ ^[[:space:]]*# ]] && continue
+        [[ -z "${line// }" ]] && continue
+        # Export the variable (handles quotes and special characters properly)
+        export "$line" 2>/dev/null || true
+    done < .env
+    set +a
 fi
 
 # Determine Italy execution mode (docker vs host python)
