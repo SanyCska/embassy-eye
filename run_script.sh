@@ -296,6 +296,77 @@ shutdown_vpn() {
 # Set trap to ensure VPN is always shut down, even on error or interrupt
 trap shutdown_vpn EXIT INT TERM
 
+# Function to run Hungary script with IP block retry logic
+# Exit code 2 means IP was blocked - will rotate VPN and retry
+run_hungary_with_ip_retry() {
+    local max_ip_retries=3
+    local ip_retry_attempt=1
+    local hungary_exit=0
+    
+    while [ $ip_retry_attempt -le $max_ip_retries ]; do
+        if [ $ip_retry_attempt -gt 1 ]; then
+            echo "$(date): ========================================"
+            echo "$(date): Retrying Hungary script after IP block (attempt $ip_retry_attempt/$max_ip_retries)..."
+            echo "$(date): ========================================"
+        fi
+        
+        # Run the script (Docker or Python based on what was called)
+        if [ "$1" = "docker" ]; then
+            docker-compose run --rm embassy-eye python fill_form.py hungary both
+            hungary_exit=$?
+        else
+            python3 fill_form.py hungary both
+            hungary_exit=$?
+        fi
+        
+        # Check exit code
+        if [ $hungary_exit -eq 0 ]; then
+            echo "$(date): Hungary script completed successfully"
+            return 0
+        elif [ $hungary_exit -eq 2 ]; then
+            # Exit code 2 = IP blocked
+            echo "$(date): Hungary script detected IP block (exit code 2)"
+            if [ $ip_retry_attempt -lt $max_ip_retries ]; then
+                echo "$(date): Rotating VPN IP and retrying..."
+                shutdown_vpn
+                select_random_vpn
+                if ! start_vpn; then
+                    echo "$(date): ERROR: Failed to restart VPN after IP block. Attempt $ip_retry_attempt/$max_ip_retries."
+                    ip_retry_attempt=$((ip_retry_attempt + 1))
+                    continue
+                fi
+                
+                # Ensure new IP is not blocked
+                if ! ensure_vpn_ip_allowed; then
+                    echo "$(date): WARNING: New VPN IP is also blocked. Attempt $ip_retry_attempt/$max_ip_retries."
+                    ip_retry_attempt=$((ip_retry_attempt + 1))
+                    continue
+                fi
+                
+                # Test connectivity
+                if ! test_target_website_connectivity; then
+                    echo "$(date): WARNING: Target website not reachable with new VPN. Attempt $ip_retry_attempt/$max_ip_retries."
+                    ip_retry_attempt=$((ip_retry_attempt + 1))
+                    continue
+                fi
+                
+                echo "$(date): VPN IP rotated successfully, retrying Hungary script..."
+                ip_retry_attempt=$((ip_retry_attempt + 1))
+                continue
+            else
+                echo "$(date): ERROR: Reached maximum IP retry attempts ($max_ip_retries). Giving up."
+                return 2
+            fi
+        else
+            # Other error (not IP block)
+            echo "$(date): Hungary script failed with exit code $hungary_exit (not IP block)"
+            return $hungary_exit
+        fi
+    done
+    
+    return $hungary_exit
+}
+
 # Load environment variables from .env file
 if [ -f .env ]; then
     set -a
@@ -353,17 +424,12 @@ if command -v docker &> /dev/null; then
     
     # Run Hungary script with Docker (device info randomizes on each run)
     # Check both Subotica and Belgrade locations
+    # Includes automatic IP block retry with VPN rotation
     echo "$(date): ========================================"
     echo "$(date): Running Hungary embassy-eye with Docker (both locations)..."
     echo "$(date): ========================================"
-    docker-compose run --rm embassy-eye python fill_form.py hungary both
+    run_hungary_with_ip_retry "docker"
     HUNGARY_EXIT=$?
-    
-    if [ $HUNGARY_EXIT -eq 0 ]; then
-        echo "$(date): Hungary script completed successfully"
-    else
-        echo "$(date): Hungary script failed with exit code $HUNGARY_EXIT"
-    fi
     
     # Run Italy script (temporarily disabled for cron/SSH usage)
     echo "$(date): ========================================"
@@ -384,17 +450,12 @@ else
     
     # Run Hungary script with Python
     # Check both Subotica and Belgrade locations
+    # Includes automatic IP block retry with VPN rotation
     echo "$(date): ========================================"
     echo "$(date): Running Hungary embassy-eye with Python (both locations)..."
     echo "$(date): ========================================"
-    python3 fill_form.py hungary both
+    run_hungary_with_ip_retry "python"
     HUNGARY_EXIT=$?
-    
-    if [ $HUNGARY_EXIT -eq 0 ]; then
-        echo "$(date): Hungary script completed successfully"
-    else
-        echo "$(date): Hungary script failed with exit code $HUNGARY_EXIT"
-    fi
     
     # Run Italy script with Python (temporarily disabled)
     echo "$(date): ========================================"

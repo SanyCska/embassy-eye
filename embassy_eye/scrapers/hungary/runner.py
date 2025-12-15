@@ -181,7 +181,8 @@ def fill_booking_form(location="subotica"):
         blocked_ip = detect_blocked_ip(driver)
         if blocked_ip:
             print("  Detected blocked IP right after page load. Aborting run.")
-            return
+            print("  Exit code 2 will trigger VPN IP rotation and retry.")
+            sys.exit(2)  # Special exit code for IP blocked - triggers VPN rotation
         
         # Try form filling and submission (with retry logic)
         attempt = 1
@@ -219,10 +220,17 @@ def fill_booking_form(location="subotica"):
                 blocked_ip = detect_blocked_ip(driver)
                 if blocked_ip:
                     print("  Detected blocked IP after page reload. Aborting run.")
-                    return
+                    print("  Exit code 2 will trigger VPN IP rotation and retry.")
+                    sys.exit(2)  # Special exit code for IP blocked - triggers VPN rotation
             
             # Fill and submit the form
             slots_available, special_case, diagnostic_info = fill_and_submit_form(driver, wait, location=location)
+            
+            # Check if IP was blocked during form submission
+            if special_case == "ip_blocked":
+                print("  🚫 IP blocked detected during form submission.")
+                print("  Exit code 2 will trigger VPN IP rotation and retry.")
+                sys.exit(2)  # Special exit code for IP blocked - triggers VPN rotation
             
             # Check if we should retry
             # Retry if: 0 fields filled OR (slots detected but no modal found)
@@ -458,7 +466,8 @@ def _run_location_check(driver, location):
         blocked_ip = detect_blocked_ip(driver)
         if blocked_ip:
             print("  Detected blocked IP right after page load. Aborting run.")
-            return
+            print("  Exit code 2 will trigger VPN IP rotation and retry.")
+            sys.exit(2)  # Special exit code for IP blocked - triggers VPN rotation
         
         # Try form filling and submission (with retry logic)
         attempt = 1
@@ -496,10 +505,17 @@ def _run_location_check(driver, location):
                 blocked_ip = detect_blocked_ip(driver)
                 if blocked_ip:
                     print("  Detected blocked IP after page reload. Aborting run.")
-                    return
+                    print("  Exit code 2 will trigger VPN IP rotation and retry.")
+                    sys.exit(2)  # Special exit code for IP blocked - triggers VPN rotation
             
             # Fill and submit the form
             slots_available, special_case, diagnostic_info = fill_and_submit_form(driver, wait, location=location)
+            
+            # Check if IP was blocked during form submission
+            if special_case == "ip_blocked":
+                print("  🚫 IP blocked detected during form submission.")
+                print("  Exit code 2 will trigger VPN IP rotation and retry.")
+                sys.exit(2)  # Special exit code for IP blocked - triggers VPN rotation
             
             # Check if we should retry
             # Retry if: 0 fields filled OR (slots detected but no modal found)
