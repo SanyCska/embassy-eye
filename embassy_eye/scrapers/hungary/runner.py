@@ -262,6 +262,19 @@ def fill_booking_form(location="subotica"):
             print("\n[8/8] Sending notification...")
             sys.stdout.flush()
             
+            # Log slot found to database
+            try:
+                from ...database import log_slot_found
+                log_slot_found(
+                    embassy="hungary",
+                    location=location,
+                    service=None,
+                    notes=f"Special case: {special_case}" if special_case else None
+                )
+                print("  ✓ Logged slot statistic to database")
+            except Exception as e:
+                print(f"  Warning: Failed to log slot statistic: {e}")
+            
             # Save HTML only if it's not a captcha or email verification case
             if special_case not in ("captcha_required", "email_verification"):
                 timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -546,6 +559,19 @@ def _run_location_check(driver, location):
         elif slots_available:
             print("\n[8/8] Sending notification...")
             sys.stdout.flush()
+            
+            # Log slot found to database
+            try:
+                from ...database import log_slot_found
+                log_slot_found(
+                    embassy="hungary",
+                    location=location,
+                    service=None,
+                    notes=f"Special case: {special_case}" if special_case else None
+                )
+                print("  ✓ Logged slot statistic to database")
+            except Exception as e:
+                print(f"  Warning: Failed to log slot statistic: {e}")
             
             # Save HTML only if it's not a captcha or email verification case
             if special_case not in ("captcha_required", "email_verification"):

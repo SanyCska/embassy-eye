@@ -320,8 +320,13 @@ def _check_email_verification_modal(driver):
     return False
 
 
-def detect_blocked_ip(driver):
-    """Detect blocked IP message anywhere on the page and log it."""
+def detect_blocked_ip(driver, embassy=None):
+    """Detect blocked IP message anywhere on the page and log it.
+    
+    Args:
+        driver: Selenium WebDriver instance
+        embassy: Optional embassy name (e.g., "hungary", "italy")
+    """
     try:
         page_text = driver.page_source.lower()
     except Exception:
@@ -335,9 +340,11 @@ def detect_blocked_ip(driver):
     if blocked_ip:
         print("❌ ACCESS BLOCKED BY IP RESTRICTION ❌")
         print(f"   Detected blocked IP: {blocked_ip}")
-        _log_blocked_ip(blocked_ip)
-        # Send healthcheck notification for IP blocked
+        # Get country info
         _, country = get_ip_and_country()
+        # Log to database and file
+        _log_blocked_ip(blocked_ip, country=country, embassy=embassy)
+        # Send healthcheck notification for IP blocked
         send_healthcheck_ip_blocked(blocked_ip, country)
         return blocked_ip
 
@@ -378,9 +385,20 @@ def _extract_blocked_ip(text):
     return None
 
 
-def _log_blocked_ip(ip_address):
-    """Append a timestamped log entry for blocked IP notices."""
+def _log_blocked_ip(ip_address, country=None, embassy=None):
+    """Log blocked IP to database and file backup."""
+    # Log to database
+    try:
+        from ..database import log_blocked_ip
+        log_blocked_ip(ip_address, country=country, embassy=embassy)
+        print(f"  ✓ Logged blocked IP to database: {ip_address}")
+    except Exception as e:
+        print(f"  Warning: Failed to log to database: {e}")
+    
+    # Also log to file as backup
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    _log_to_paths(IP_BLOCKED_LOG_PATHS, f"{timestamp} - {ip_address}\n", "blocked IP")
+    country_info = f" ({country})" if country else ""
+    embassy_info = f" [{embassy}]" if embassy else ""
+    _log_to_paths(IP_BLOCKED_LOG_PATHS, f"{timestamp} - {ip_address}{country_info}{embassy_info}\n", "blocked IP")
 
 

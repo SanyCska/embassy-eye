@@ -1,6 +1,6 @@
 #!/bin/bash
-# Wrapper script to run embassy-eye scripts (Hungary and Italy)
-# This script manages VPN connection and runs both Hungary and Italy scrapers sequentially
+# Wrapper script to run embassy-eye Hungary scraper
+# This script manages VPN connection and runs the Hungary scraper (Subotica and Belgrade)
 
 # Get the directory where this script is located
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -381,13 +381,6 @@ if [ -f .env ]; then
     set +a
 fi
 
-# Determine Italy execution mode (docker vs host python)
-ITALY_USE_DOCKER_DEFAULT="true"
-if [ -n "$ITALY_USE_DOCKER" ]; then
-    ITALY_USE_DOCKER_DEFAULT="$ITALY_USE_DOCKER"
-fi
-ITALY_USE_DOCKER=$(echo "$ITALY_USE_DOCKER_DEFAULT" | tr '[:upper:]' '[:lower:]')
-
 # Check if Docker is available
 if command -v docker &> /dev/null; then
     # Build Docker images first (if needed, WITHOUT VPN - faster)
@@ -405,20 +398,6 @@ if command -v docker &> /dev/null; then
         docker-compose build
     fi
     
-    # Build Italy Docker image if requested
-    if [ "$ITALY_USE_DOCKER" != "false" ] && [ -f "docker-compose.italy.yml" ]; then
-        # Check if Italy image exists (Docker Compose uses pattern: <project>_<service>)
-        # Try multiple possible naming patterns
-        ITALY_IMAGE_EXISTS=$(docker images --format "{{.Repository}}:{{.Tag}}" | grep -E "(embassy-eye-italy|embassy-eye.*italy)" | head -1)
-        
-        if [ -z "$ITALY_IMAGE_EXISTS" ]; then
-            echo "$(date): Italy Docker image not found, building..."
-            docker-compose -f docker-compose.italy.yml build
-        else
-            echo "$(date): Italy Docker image exists ($ITALY_IMAGE_EXISTS), skipping build"
-        fi
-    fi
-    
     # Start VPN (AFTER build, BEFORE running containers)
     establish_vpn_connection
     
@@ -429,20 +408,7 @@ if command -v docker &> /dev/null; then
     echo "$(date): Running Hungary embassy-eye with Docker (both locations)..."
     echo "$(date): ========================================"
     run_hungary_with_ip_retry "docker"
-    HUNGARY_EXIT=$?
-    
-    # Run Italy script (temporarily disabled for cron/SSH usage)
-    echo "$(date): ========================================"
-    echo "$(date): Italy embassy-eye run is temporarily disabled (cron maintenance)."
-    echo "$(date): ========================================"
-    ITALY_EXIT=0
-    
-    # Use the worst exit code from both scripts
-    if [ $HUNGARY_EXIT -ne 0 ] || [ $ITALY_EXIT -ne 0 ]; then
-        EXIT_CODE=1
-    else
-        EXIT_CODE=0
-    fi
+    EXIT_CODE=$?
 else
     # Run directly with Python (requires Python environment setup)
     # For Python, VPN is needed before running
@@ -455,26 +421,13 @@ else
     echo "$(date): Running Hungary embassy-eye with Python (both locations)..."
     echo "$(date): ========================================"
     run_hungary_with_ip_retry "python"
-    HUNGARY_EXIT=$?
-    
-    # Run Italy script with Python (temporarily disabled)
-    echo "$(date): ========================================"
-    echo "$(date): Italy embassy-eye run is temporarily disabled (cron maintenance)."
-    echo "$(date): ========================================"
-    ITALY_EXIT=0
-    
-    # Use the worst exit code from both scripts
-    if [ $HUNGARY_EXIT -ne 0 ] || [ $ITALY_EXIT -ne 0 ]; then
-        EXIT_CODE=1
-    else
-        EXIT_CODE=0
-    fi
+    EXIT_CODE=$?
 fi
 
 if [ $EXIT_CODE -eq 0 ]; then
-    echo "$(date): All scripts completed successfully"
+    echo "$(date): Hungary script completed successfully"
 else
-    echo "$(date): One or more scripts failed"
+    echo "$(date): Hungary script failed with exit code $EXIT_CODE"
 fi
 
 # VPN will be shut down automatically by the trap

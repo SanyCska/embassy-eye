@@ -30,6 +30,10 @@ services:
       - PROXY_PASSWORD=${PROXY_PASSWORD:-}
       # Headless mode (set to true for Docker/server, false for local dev)
       - ITALY_HEADLESS=${ITALY_HEADLESS:-true}
+      # Database configuration
+      # When using network_mode: host, connect to localhost
+      - DATABASE_URL=${DATABASE_URL:-postgresql://embassy_user:embassy_pass@localhost:5432/embassy_eye}
+      - DB_ECHO=${DB_ECHO:-false}
     env_file:
       - .env
     volumes:

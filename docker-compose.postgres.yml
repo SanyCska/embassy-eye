@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:14-alpine
+    container_name: embassy-eye-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: embassy_user
+      POSTGRES_PASSWORD: embassy_pass
+      POSTGRES_DB: embassy_eye
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      # Persist database data
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U embassy_user -d embassy_eye"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+    driver: local

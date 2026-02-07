@@ -11,6 +11,10 @@ services:
       # Telegram configuration - set these in .env file or override here
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - TELEGRAM_USER_ID=${TELEGRAM_USER_ID}
+      # Database configuration
+      # When using network_mode: host, connect to localhost
+      - DATABASE_URL=${DATABASE_URL:-postgresql://embassy_user:embassy_pass@localhost:5432/embassy_eye}
+      - DB_ECHO=${DB_ECHO:-false}
     env_file:
       - .env
     volumes:

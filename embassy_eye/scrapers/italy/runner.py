@@ -1871,6 +1871,20 @@ class ItalyLoginBot:
             Logger.log("ℹ Slots already reported earlier in this run; skipping duplicate notification.")
             return
         
+        # Log slot found to database
+        try:
+            from ...database import log_slot_found
+            service_id = href.split("/")[-1] if "/" in href else href
+            log_slot_found(
+                embassy="italy",
+                location=None,
+                service=service_id,
+                notes=f"Booking service: {href}"
+            )
+            Logger.log("✓ Logged slot statistic to database")
+        except Exception as e:
+            Logger.log(f"Warning: Failed to log slot statistic: {e}", "WARN")
+        
         # Send healthcheck notification
         _, country = get_ip_and_country()
         send_healthcheck_slots_found(country)

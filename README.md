@@ -1,272 +1,257 @@
 # Embassy Eye
 
-An automated appointment monitoring and booking system for embassy appointment scheduling. This tool continuously checks for available appointment slots and sends notifications via Telegram when slots become available.
+Automated appointment monitoring system for embassy appointment booking. Continuously checks for available appointment slots and sends notifications via Telegram.
 
-## Features
+## 🎯 Features
 
-- 🤖 **Automated Form Filling**: Automatically fills booking forms with configurable data
-- 🔍 **Slot Monitoring**: Continuously checks for available appointment slots
-- 📱 **Telegram Notifications**: Sends instant notifications when slots are found
-- 🔔 **Healthcheck Notifications**: Optional separate bot for healthcheck events (slots found, slot busy, IP blocked, page reloaded)
-- 🐳 **Docker Support**: Easy deployment with Docker and Docker Compose
-- 🔒 **VPN Integration**: Built-in WireGuard VPN support for secure connections
-- ⏰ **Cron Scheduling**: Run automatically on a schedule (e.g., every 10 minutes)
-- 🎭 **Undetected Automation**: Uses undetected-chromedriver to avoid detection
-- 📸 **Screenshot Capture**: Automatically captures and sends screenshots when slots are found
-- ⏸️ **Captcha Cooldown**: Automatically skips runs when captcha is detected to avoid triggering rate limits
-- 💾 **HTML Saving**: Saves page HTML when slots are found (except for captcha cases)
+- 🤖 **Automated Monitoring**: Checks Hungary (Subotica/Belgrade) and Italy embassy appointments
+- 📱 **Telegram Notifications**: Instant alerts when slots are found
+- 🔒 **VPN Integration**: Built-in WireGuard VPN rotation with IP blocking detection
+- 🐳 **Docker Support**: Easy deployment with Docker Compose
+- 💾 **Database Logging**: PostgreSQL database for tracking blocked IPs and slot statistics
+- ⏰ **Cron Scheduling**: Runs automatically every 10 minutes
+- 📸 **Screenshot Capture**: Saves screenshots and HTML when slots are found
+- ⏸️ **Smart Cooldown**: Automatically pauses after captcha detection
 
-## Requirements
+## 📋 Requirements
 
 - Python 3.11+ (if running without Docker)
 - Docker and Docker Compose (recommended)
+- PostgreSQL 14+ (for database logging)
 - WireGuard VPN configured (optional, but recommended)
-- Telegram Bot Token and User ID (for notifications)
+- Telegram Bot Token and User ID
 
-## Installation
+## 🚀 Quick Start
 
-### Option 1: Using Docker (Recommended)
+### 1. Install PostgreSQL
 
-1. **Clone the repository:**
-   ```bash
-   git clone <repository-url>
-   cd embassy-eye
-   ```
+See [DATABASE_INSTALL.md](DATABASE_INSTALL.md) for complete instructions.
 
-2. **Set up environment variables:**
-   ```bash
-   cp env.example .env
-   # Edit .env and add your Telegram credentials
-   ```
-
-3. **Build and run:**
-   ```bash
-   ./build_docker.sh
-   docker-compose up -d embassy-eye
-   ```
-
-### Option 2: Using Python Directly
-
-1. **Clone the repository:**
-   ```bash
-   git clone <repository-url>
-   cd embassy-eye
-   ```
-
-2. **Create a virtual environment:**
-   ```bash
-   python3 -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   ```
-
-3. **Install dependencies:**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-4. **Set up environment variables:**
-   ```bash
-   cp env.example .env
-   # Edit .env and add your Telegram credentials
-   ```
-
-## Configuration
-
-### Environment Variables
-
-Create a `.env` file in the project root with the following variables:
-
-```env
-TELEGRAM_BOT_TOKEN=your_bot_token_here
-TELEGRAM_USER_ID=your_user_id_here
-HEALTHCHECK_BOT_TOKEN=your_healthcheck_bot_token_here  # Optional
+Quick version:
+```bash
+sudo apt install postgresql postgresql-contrib -y
+sudo -u postgres psql << EOF
+CREATE USER embassy_user WITH PASSWORD 'embassy_pass';
+CREATE DATABASE embassy_eye;
+GRANT ALL PRIVILEGES ON DATABASE embassy_eye TO embassy_user;
+\c embassy_eye
+GRANT ALL ON SCHEMA public TO embassy_user;
+EOF
+echo "host all all 127.0.0.1/32 md5" | sudo tee -a /etc/postgresql/*/main/pg_hba.conf
+sudo systemctl restart postgresql
 ```
 
-**Getting your Telegram credentials:**
-- **Bot Token**: Create a bot using [@BotFather](https://t.me/BotFather) on Telegram
-- **User ID**: Get your user ID from [@userinfobot](https://t.me/userinfobot) on Telegram
-- **Healthcheck Bot Token** (optional): Create a separate bot for healthcheck notifications. If not set, healthcheck notifications will be silently skipped.
+### 2. Clone and Configure
 
-### Healthcheck Notifications
-
-The system supports an optional healthcheck bot that sends notifications for important events:
-
-- **Slots Found**: Notifies when appointment slots become available (includes country info)
-- **Slot Busy**: Notifies when all slots are busy (includes country info)
-- **IP Blocked**: Notifies when IP is blocked by the embassy site (includes IP address and country)
-- **Page Reloaded**: Notifies when the page is reloaded for form refilling (includes reason if available)
-
-To enable healthcheck notifications:
-1. Create a separate Telegram bot using [@BotFather](https://t.me/BotFather)
-2. Add `HEALTHCHECK_BOT_TOKEN` to your `.env` file
-3. The healthcheck bot will send messages to the same `TELEGRAM_USER_ID`
-
-Healthcheck notifications are sent to the same user ID as regular notifications, allowing you to monitor system health separately from slot availability alerts.
-
-### Form Configuration
-
-Edit `config.py` to customize:
-- Default form values (name, email, phone, etc.)
-- Field mappings
-- Dropdown selections (consulate, visa type)
-- Timing constants
-- Booking URL
-
-### VPN Configuration
-
-If using VPN, ensure your WireGuard configuration is at `/etc/wireguard/rs-beg.conf`. The script will automatically start and stop the VPN connection.
-
-For passwordless VPN access (required for cron), configure sudoers:
 ```bash
-sudo visudo
-# Add this line (replace 'youruser' with your username):
-youruser ALL=(ALL) NOPASSWD: /usr/bin/wg-quick
+git clone <repository-url>
+cd embassy-eye
+
+# Setup environment
+cp env.example .env
+nano .env  # Add your credentials
+
+# Install dependencies and initialize database
+pip install -r requirements.txt
+python scripts/init_database.py
 ```
 
-## Usage
+### 3. Run with Docker (Recommended)
 
-### Manual Execution
-
-**Using Docker:**
 ```bash
-docker-compose run --rm embassy-eye
-```
+# Build images
+./build_docker.sh
 
-**Using Python:**
-```bash
-python fill_form.py
-# or
+# Test run (Hungary - both locations)
 ./run_script.sh
+
+# Setup cron for every 10 minutes
+crontab -e
+# Add: */10 * * * * /root/embassy-eye/run_script.sh >> /root/embassy-eye/cron.log 2>&1
 ```
 
-The `run_script.sh` script automatically:
-- Starts VPN connection (if configured)
-- Runs the automation (using Docker if available, otherwise Python)
-- Stops VPN connection when finished
-
-### Scheduled Execution (Cron)
-
-To run automatically every 10 minutes:
-
-1. **Make the script executable:**
-   ```bash
-   chmod +x run_script.sh
-   ```
-
-2. **Edit crontab:**
-   ```bash
-   crontab -e
-   ```
-
-3. **Add the cron job:**
-   ```cron
-   */10 * * * * /full/path/to/embassy-eye/run_script.sh >> /full/path/to/embassy-eye/cron.log 2>&1
-   ```
-
-For more detailed cron setup instructions, see [CRON_SETUP.md](CRON_SETUP.md).
-
-## How It Works
-
-1. **Cooldown Check**: Before starting, checks if the script should skip this run due to captcha cooldown
-2. **Initialization**: Starts Chrome browser with undetected-chromedriver
-3. **Navigation**: Navigates to the embassy booking page
-4. **Form Inspection**: Analyzes available form fields
-5. **Form Filling**: 
-   - Selects consulate and visa type from dropdowns
-   - Fills all required fields with configured data
-   - Handles special fields (email, checkboxes, textareas)
-6. **Slot Checking**: Clicks "Next" and checks for available appointment slots
-7. **Notification**: If slots are found, sends Telegram notification with screenshot
-8. **HTML Saving**: Saves page HTML to `screenshots/` folder when slots are found (skipped for captcha cases)
-9. **Captcha Handling**: If captcha is detected, saves cooldown info and skips next 2 runs
-10. **Cleanup**: Closes browser and shuts down VPN (if used)
-
-### Captcha Cooldown Mechanism
-
-When the script detects that slots are available but a captcha is required, it automatically:
-
-- **Saves cooldown information** to `captcha_cooldown.json`
-- **Skips the next 2 scheduled runs** to avoid triggering rate limits
-- **Automatically resumes** normal operation after the cooldown period
-
-This helps prevent the script from repeatedly hitting captcha challenges. The cooldown file is automatically managed and cleared after the required number of skips.
-
-**Cooldown File Location**: `captcha_cooldown.json` in the project root
-
-## Project Structure
+## 📁 Project Structure
 
 ```
 embassy-eye/
-├── embassy_eye/          # Main package
-│   ├── automation/       # Web automation utilities
-│   ├── config/          # Configuration modules
-│   ├── notifications/   # Telegram notification system
-│   └── runner/          # Main execution logic
-├── scripts/             # CLI entry points
-├── screenshots/         # Captured screenshots and HTML
-├── captcha_cooldown.json  # Cooldown state file (auto-managed)
-├── config.py            # Default configuration values
-├── fill_form.py         # Backward-compatible entry point
-├── run_script.sh        # Wrapper script with VPN management
-├── docker-compose.yml   # Docker Compose configuration
-├── Dockerfile           # Docker image definition
-└── requirements.txt     # Python dependencies
+├── embassy_eye/
+│   ├── automation/         # Web automation utilities
+│   ├── database/          # PostgreSQL models and operations
+│   ├── notifications/     # Telegram notifications
+│   ├── runner/           # Main execution logic
+│   └── scrapers/
+│       ├── hungary/      # Hungary embassy scraper (Subotica & Belgrade)
+│       └── italy/        # Italy embassy scraper
+├── scripts/              # Utility scripts
+├── run_script.sh        # Main wrapper with VPN management
+├── .env                 # Configuration (not in git)
+└── DATABASE_INSTALL.md  # Database setup guide
 ```
 
-## Deployment
+## ⚙️ Configuration
 
-For deployment instructions, see [DEPLOYMENT.md](DEPLOYMENT.md).
+### Environment Variables
 
-Quick deployment steps:
+Edit `.env` file:
+
 ```bash
-# Stop existing containers
-docker stop embassy-eye || true
-docker rm embassy-eye || true
+# Telegram (Required)
+TELEGRAM_BOT_TOKEN=your_bot_token_here
+TELEGRAM_USER_ID=your_user_id_here
+HEALTHCHECK_BOT_TOKEN=your_healthcheck_bot_here  # Optional
 
-# Update code
-git pull --rebase
+# Database (Required)
+DATABASE_URL=postgresql://embassy_user:embassy_pass@localhost:5432/embassy_eye
+DB_ECHO=false
 
-# Rebuild and start
-./build_docker.sh
-docker-compose up --build --remove-orphans -d embassy-eye
-
-# Check logs
-docker logs -f embassy-eye
+# Italy credentials (if using Italy scraper)
+ITALY_EMAIL=your_email@example.com
+ITALY_PASSWORD=your_password
 ```
 
-## Troubleshooting
+**Getting Telegram credentials:**
+- Bot Token: Create bot with [@BotFather](https://t.me/BotFather)
+- User ID: Get from [@userinfobot](https://t.me/userinfobot)
+
+### VPN Configuration
+
+The `run_script.sh` automatically manages VPN connections using WireGuard.
+
+**Available VPN locations** (edit `run_script.sh` to customize):
+- Albania, Bosnia, Bulgaria, Croatia, Cyprus, Georgia
+- Greece, Hungary, Moldova, Montenegro, North Macedonia
+- Poland, Romania, Serbia, Slovakia, Slovenia, Turkey
+
+**Setup passwordless sudo for cron:**
+```bash
+sudo visudo
+# Add: youruser ALL=(ALL) NOPASSWD: /usr/bin/wg-quick
+```
+
+## 🏃 Usage
+
+### Manual Run
+```bash
+# With VPN rotation and Docker
+./run_script.sh
+
+# Docker only (no VPN)
+docker-compose run --rm embassy-eye python fill_form.py hungary both
+
+# Python directly
+python fill_form.py hungary both
+```
+
+### Cron Scheduling
+
+Run every 10 minutes:
+```bash
+crontab -e
+```
+
+Add:
+```cron
+*/10 * * * * /root/embassy-eye/run_script.sh >> /root/embassy-eye/cron.log 2>&1
+```
+
+Other schedules:
+- `*/5 * * * *` - Every 5 minutes
+- `*/15 * * * *` - Every 15 minutes
+- `0 * * * *` - Every hour
+
+## 📊 Database
+
+The system automatically tracks:
+
+### Blocked VPN IPs
+Every time a VPN IP is blocked:
+- IP address, country, embassy, timestamp
+
+### Slot Statistics  
+Every time slots are found:
+- Embassy, location, service, timestamp, notes
+
+**Query examples:**
+```bash
+# Recent blocked IPs
+psql -h localhost -U embassy_user -d embassy_eye -c \
+  "SELECT * FROM blocked_vpns ORDER BY blocked_at DESC LIMIT 10;"
+
+# Recent slots found
+psql -h localhost -U embassy_user -d embassy_eye -c \
+  "SELECT * FROM slot_statistics ORDER BY detected_at DESC LIMIT 10;"
+
+# Blocked IPs by country
+psql -h localhost -U embassy_user -d embassy_eye -c \
+  "SELECT country, COUNT(*) FROM blocked_vpns GROUP BY country ORDER BY COUNT(*) DESC;"
+```
+
+## 🔍 How It Works
+
+### Hungary Scraper
+1. Connects via random VPN
+2. Checks if IP is in blocked list
+3. Fills booking form for Subotica and/or Belgrade
+4. Detects available slots or blocks
+5. Sends Telegram notification if slots found
+6. Logs to database
+7. If IP blocked: rotates VPN and retries (up to 3 times)
+
+### Italy Scraper
+1. Uses real Chrome with CDP (Chrome DevTools Protocol)
+2. Handles reCAPTCHA Enterprise
+3. Checks multiple booking services
+4. Detects "no slots" modals
+5. Account rotation to avoid blocks
+6. Sends notification with service details
+
+See scraper-specific docs:
+- [Hungary Scraper Details](embassy_eye/scrapers/hungary/README.md)
+- [Italy Scraper Details](embassy_eye/scrapers/italy/README.md)
+
+## 🔧 Troubleshooting
+
+### Check Logs
+```bash
+# Cron logs
+tail -f /root/embassy-eye/cron.log
+
+# Docker logs
+docker logs -f embassy-eye
+
+# Database connection
+python scripts/init_database.py
+```
 
 ### Common Issues
 
-1. **VPN fails to start**: Ensure passwordless sudo is configured (see VPN Configuration)
-2. **Telegram notifications not working**: Verify `.env` file has correct credentials
-3. **Docker not found**: Use full paths in cron jobs or ensure Docker is in PATH
-4. **Form fields not filling**: Check `config.py` for correct field mappings
-5. **No slots found**: This is expected - the tool will continue monitoring
-6. **Script skipping runs**: Check `captcha_cooldown.json` - the script automatically skips runs after captcha detection
+1. **VPN fails**: Check passwordless sudo setup
+2. **Database errors**: Verify PostgreSQL is running and DATABASE_URL is correct
+3. **No notifications**: Check Telegram credentials in .env
+4. **IP keeps getting blocked**: Script will rotate through VPN locations automatically
 
-### Logs
+### Deployment
 
-- **Docker logs**: `docker logs -f embassy-eye`
-- **Cron logs**: Check `cron.log` in the project directory
-- **System logs**: `sudo journalctl -u cron -f`
+Update and rebuild:
+```bash
+cd /root/embassy-eye
+git pull --rebase
+./build_docker.sh
+docker-compose up --build --remove-orphans -d
+```
 
-## Security Notes
+## 🔐 Security
 
-- Keep your `.env` file secure and never commit it to version control
-- Use proper file permissions: `chmod 600 .env`
-- Consider running as a dedicated user instead of root
-- VPN credentials should be properly secured
+- Keep `.env` file secure: `chmod 600 .env`
+- Don't commit `.env` to version control
+- Use strong database passwords
+- Limit PostgreSQL network access
+- Run as non-root user when possible
 
-## License
+## 📝 License
 
-See [LICENSE](LICENSE) file for details.
+See [LICENSE](LICENSE) file.
 
-## Contributing
+## ⚠️ Disclaimer
 
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-## Disclaimer
-
-This tool is for educational and personal use only. Use responsibly and in accordance with the terms of service of the booking system. The authors are not responsible for any misuse of this software.
-
+This tool is for educational and personal use only. Use responsibly and in accordance with embassy terms of service. The authors are not responsible for any misuse.
