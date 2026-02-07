@@ -17,6 +17,7 @@ from pathlib import Path
 # Add parent directory to path to import embassy_eye
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from sqlalchemy import text
 from embassy_eye.database import init_db, get_db_session
 from embassy_eye.database.models import BlockedVPN, SlotStatistic
 
@@ -25,7 +26,7 @@ def check_connection():
     """Check if we can connect to the database."""
     try:
         with get_db_session() as session:
-            result = session.execute("SELECT version();")
+            result = session.execute(text("SELECT version();"))
             version = result.fetchone()[0]
             print(f"✓ Database connection successful")
             print(f"  PostgreSQL version: {version}")
@@ -40,17 +41,17 @@ def check_tables():
     try:
         with get_db_session() as session:
             # Check for slot_statistics table
-            result = session.execute(
+            result = session.execute(text(
                 "SELECT EXISTS (SELECT FROM information_schema.tables "
                 "WHERE table_schema = 'public' AND table_name = 'slot_statistics');"
-            )
+            ))
             slot_stats_exists = result.fetchone()[0]
             
             # Check for blocked_vpns table
-            result = session.execute(
+            result = session.execute(text(
                 "SELECT EXISTS (SELECT FROM information_schema.tables "
                 "WHERE table_schema = 'public' AND table_name = 'blocked_vpns');"
-            )
+            ))
             blocked_vpns_exists = result.fetchone()[0]
             
             print("\nTable status:")
