@@ -360,6 +360,51 @@ def fill_booking_form(location="subotica"):
             print("  No slots available")
         sys.stdout.flush()
         
+        # Log run statistics to database
+        try:
+            from ...database import log_run_statistic
+            from ...notifications.telegram import get_ip_and_country
+            
+            # Determine outcome
+            if special_case == "ip_blocked":
+                outcome = "ip_blocked"
+            elif special_case == "captcha_required":
+                outcome = "slots_found_captcha"
+            elif special_case == "email_verification":
+                outcome = "slots_found_email_verification"
+            elif slots_available:
+                outcome = "slots_found"
+            elif diagnostic_info.get('modal_found'):
+                outcome = "no_slots_modal"
+            else:
+                outcome = "no_slots_other"
+            
+            # Get IP and country
+            ip_address, country = get_ip_and_country()
+            
+            # Build notes
+            notes_parts = []
+            if diagnostic_info.get('url'):
+                notes_parts.append(f"URL: {diagnostic_info['url']}")
+            if diagnostic_info.get('title'):
+                notes_parts.append(f"Title: {diagnostic_info['title']}")
+            if 'modal_found' in diagnostic_info:
+                notes_parts.append(f"Modal: {'Yes' if diagnostic_info['modal_found'] else 'No'}")
+            notes = "; ".join(notes_parts) if notes_parts else None
+            
+            log_run_statistic(
+                embassy="hungary",
+                outcome=outcome,
+                location=location,
+                service=None,
+                ip_address=ip_address,
+                country=country,
+                notes=notes
+            )
+            print(f"  ✓ Logged run statistic: {outcome}")
+        except Exception as e:
+            print(f"  Warning: Failed to log run statistic: {e}")
+        
         # Keep browser open for inspection (only if not headless)
         # Since we're in headless mode, skip the inspection delay
         
@@ -658,6 +703,52 @@ def _run_location_check(driver, location):
         else:
             print("  No slots available")
         sys.stdout.flush()
+        
+        # Log run statistics to database
+        try:
+            from ...database import log_run_statistic
+            from ...notifications.telegram import get_ip_and_country
+            
+            # Determine outcome
+            if special_case == "ip_blocked":
+                outcome = "ip_blocked"
+            elif special_case == "captcha_required":
+                outcome = "slots_found_captcha"
+            elif special_case == "email_verification":
+                outcome = "slots_found_email_verification"
+            elif slots_available:
+                outcome = "slots_found"
+            elif diagnostic_info.get('modal_found'):
+                outcome = "no_slots_modal"
+            else:
+                outcome = "no_slots_other"
+            
+            # Get IP and country
+            ip_address, country = get_ip_and_country()
+            
+            # Build notes
+            notes_parts = []
+            if diagnostic_info.get('url'):
+                notes_parts.append(f"URL: {diagnostic_info['url']}")
+            if diagnostic_info.get('title'):
+                notes_parts.append(f"Title: {diagnostic_info['title']}")
+            if 'modal_found' in diagnostic_info:
+                notes_parts.append(f"Modal: {'Yes' if diagnostic_info['modal_found'] else 'No'}")
+            notes = "; ".join(notes_parts) if notes_parts else None
+            
+            log_run_statistic(
+                embassy="hungary",
+                outcome=outcome,
+                location=location,
+                service=None,
+                ip_address=ip_address,
+                country=country,
+                notes=notes
+            )
+            print(f"  ✓ Logged run statistic: {outcome}")
+        except Exception as e:
+            print(f"  Warning: Failed to log run statistic: {e}")
+        
     except Exception as e:
         print(f"\n✗ Error occurred during {location_display} check: {e}")
         import traceback

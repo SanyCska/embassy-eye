@@ -9,6 +9,7 @@ Automated appointment monitoring system for embassy appointment booking. Continu
 - 🔒 **VPN Integration**: Built-in WireGuard VPN rotation with IP blocking detection
 - 🐳 **Docker Support**: Easy deployment with Docker Compose
 - 💾 **Database Logging**: PostgreSQL database for tracking blocked IPs and slot statistics
+- 📊 **Run Statistics**: Track every run with detailed outcomes and success rates
 - ⏰ **Cron Scheduling**: Runs automatically every 10 minutes
 - 📸 **Screenshot Capture**: Saves screenshots and HTML when slots are found
 - ⏸️ **Smart Cooldown**: Automatically pauses after captcha detection
@@ -208,6 +209,32 @@ psql -h localhost -U embassy_user -d embassy_eye -c \
 See scraper-specific docs:
 - [Hungary Scraper Details](embassy_eye/scrapers/hungary/README.md)
 - [Italy Scraper Details](embassy_eye/scrapers/italy/README.md)
+
+## 📊 Statistics & Monitoring
+
+View detailed run statistics to analyze success rates and system behavior:
+
+```bash
+# View detailed statistics for last 7 days
+python scripts/view_run_statistics.py --detailed
+
+# View last 30 days
+python scripts/view_run_statistics.py --detailed --days 30
+
+# View specific location
+python scripts/view_run_statistics.py --detailed --location subotica
+
+# View recent runs
+python scripts/view_run_statistics.py --recent --limit 50
+```
+
+The system tracks every run with outcomes:
+- ✅ **Slots Found**: slots_found, slots_found_captcha, slots_found_email_verification
+- ❌ **No Slots (Modal)**: no_slots_modal - reliable "no slots" indicator
+- 🚫 **IP Blocked**: ip_blocked - triggers VPN rotation
+- ⚠️ **No Slots (Other)**: no_slots_other - ambiguous cases
+
+See [STATISTICS.md](STATISTICS.md) for complete documentation on viewing and analyzing statistics.
 
 ## 🔧 Troubleshooting
 

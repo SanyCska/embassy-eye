@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Optional
 
 from .connection import get_db_session
-from .models import BlockedVPN, SlotStatistic
+from .models import BlockedVPN, SlotStatistic, RunStatistic
 
 
 def log_blocked_ip(
@@ -181,3 +181,158 @@ def get_slot_statistics(days: int = 7, limit: int = 100):
     except Exception as e:
         print(f"  Warning: Failed to fetch slot statistics: {e}")
         return []
+
+
+def log_run_statistic(
+    embassy: str,
+    outcome: str,
+    location: Optional[str] = None,
+    service: Optional[str] = None,
+    ip_address: Optional[str] = None,
+    country: Optional[str] = None,
+    notes: Optional[str] = None
+) -> RunStatistic:
+    """
+    Log every scraper run with its outcome.
+    
+    Args:
+        embassy: The embassy name (e.g., "hungary", "italy")
+        outcome: Run outcome - one of:
+            - "slots_found" - slots available
+            - "slots_found_captcha" - slots found but captcha required
+            - "slots_found_email_verification" - slots found but email verification required
+            - "no_slots_modal" - modal detected with "no appointments" message
+            - "ip_blocked" - IP was blocked
+            - "no_slots_other" - no slots but no modal detected
+        location: Specific location (e.g., "subotica", "belgrade")
+        service: Service identifier (e.g., booking service ID)
+        ip_address: IP address used for this run
+        country: VPN country
+        notes: Additional diagnostic information
+    
+    Returns:
+        The created RunStatistic record
+    """
+    try:
+        with get_db_session() as session:
+            run_stat = RunStatistic(
+                embassy=embassy,
+                location=location,
+                service=service,
+                run_at=datetime.utcnow(),
+                outcome=outcome,
+                ip_address=ip_address,
+                country=country,
+                notes=notes
+            )
+            session.add(run_stat)
+            session.commit()
+            session.refresh(run_stat)
+            return run_stat
+    except Exception as e:
+        print(f"  Warning: Failed to log run statistic to database: {e}")
+        # Don't raise - we don't want to break the main flow
+        return None
+
+
+def get_run_statistics(
+    days: int = 7,
+    limit: int = 100,
+    embassy: Optional[str] = None,
+    location: Optional[str] = None,
+    outcome: Optional[str] = None
+):
+    """
+    Get recent run statistics with optional filters.
+    
+    Args:
+        days: How many days to look back (default: 7)
+        limit: Maximum number of records to return
+        embassy: Filter by embassy (optional)
+        location: Filter by location (optional)
+        outcome: Filter by outcome (optional)
+    
+    Returns:
+        List of RunStatistic records as dictionaries
+    """
+    try:
+        from datetime import timedelta
+        
+        with get_db_session() as session:
+            cutoff = datetime.utcnow() - timedelta(days=days)
+            query = session.query(RunStatistic).filter(
+                RunStatistic.run_at >= cutoff
+            )
+            
+            if embassy:
+                query = query.filter(RunStatistic.embassy == embassy)
+            if location:
+                query = query.filter(RunStatistic.location == location)
+            if outcome:
+                query = query.filter(RunStatistic.outcome == outcome)
+            
+            results = query.order_by(RunStatistic.run_at.desc()).limit(limit).all()
+            
+            # Detach from session for safe return
+            return [
+                {
+                    'id': r.id,
+                    'embassy': r.embassy,
+                    'location': r.location,
+                    'service': r.service,
+                    'run_at': r.run_at,
+                    'outcome': r.outcome,
+                    'ip_address': r.ip_address,
+                    'country': r.country,
+                    'notes': r.notes
+                }
+                for r in results
+            ]
+    except Exception as e:
+        print(f"  Warning: Failed to fetch run statistics: {e}")
+        return []
+
+
+def get_run_statistics_summary(days: int = 7, embassy: Optional[str] = None):
+    """
+    Get a summary of run statistics grouped by outcome.
+    
+    Args:
+        days: How many days to look back (default: 7)
+        embassy: Filter by embassy (optional)
+    
+    Returns:
+        Dictionary with outcome counts
+    """
+    try:
+        from datetime import timedelta
+        from sqlalchemy import func
+        
+        with get_db_session() as session:
+            cutoff = datetime.utcnow() - timedelta(days=days)
+            query = session.query(
+                RunStatistic.outcome,
+                RunStatistic.location,
+                func.count(RunStatistic.id).label('count')
+            ).filter(
+                RunStatistic.run_at >= cutoff
+            )
+            
+            if embassy:
+                query = query.filter(RunStatistic.embassy == embassy)
+            
+            results = query.group_by(
+                RunStatistic.outcome,
+                RunStatistic.location
+            ).all()
+            
+            # Format results
+            summary = {}
+            for outcome, location, count in results:
+                key = f"{location or 'all'}_{outcome}"
+                summary[key] = count
+            
+            return summary
+    except Exception as e:
+        print(f"  Warning: Failed to fetch run statistics summary: {e}")
+        return {}

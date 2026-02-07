@@ -77,6 +77,7 @@ You should see:
  Schema |      Name        | Type  |    Owner     
 --------+------------------+-------+--------------
  public | blocked_vpns     | table | embassy_user
+ public | run_statistics   | table | embassy_user
  public | slot_statistics  | table | embassy_user
 ```
 
@@ -98,6 +99,18 @@ Logs every time appointment slots are found:
 - Timestamp
 - Notes (special cases like captcha/email verification)
 
+### run_statistics table ✨ NEW
+Logs **every single scraper run** with detailed outcome:
+- Embassy name (hungary/italy)
+- Location (subotica/belgrade for Hungary)
+- Timestamp
+- **Outcome** (slots_found, slots_found_captcha, slots_found_email_verification, no_slots_modal, ip_blocked, no_slots_other)
+- IP address used
+- VPN country
+- Diagnostic notes
+
+See [STATISTICS.md](STATISTICS.md) for detailed documentation on viewing and analyzing run statistics.
+
 ## Query Examples
 
 ```bash
@@ -116,6 +129,16 @@ psql -h localhost -U embassy_user -d embassy_eye -c \
 # Slots found in last 7 days
 psql -h localhost -U embassy_user -d embassy_eye -c \
   "SELECT embassy, COUNT(*) FROM slot_statistics WHERE detected_at > NOW() - INTERVAL '7 days' GROUP BY embassy;"
+
+# View run statistics summary
+psql -h localhost -U embassy_user -d embassy_eye -c \
+  "SELECT location, outcome, COUNT(*) FROM run_statistics WHERE run_at > NOW() - INTERVAL '7 days' GROUP BY location, outcome ORDER BY location, COUNT(*) DESC;"
+```
+
+**For detailed statistics viewing, use the dedicated script:**
+
+```bash
+python scripts/view_run_statistics.py --detailed
 ```
 
 ## Backup Database
