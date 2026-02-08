@@ -133,6 +133,12 @@ def check_appointment_availability(driver, location=None):
         diagnostic_info['page_contains_no_slots'] = any(phrase in body_text for phrase in 
                                                          ["no appointments", "no appointments available", "currently no appointments"])
         
+        # Check if we're back at the initial form (false positive for slots)
+        # If page contains "please select a consulate" or similar text, we're at the beginning
+        form_reset_detected = any(phrase in body_text for phrase in 
+                                  ["please select a consulate", "please select the location required", "select location"])
+        diagnostic_info['form_reset_detected'] = form_reset_detected
+        
         # Check if we're still on the form page (booking data step)
         diagnostic_info['on_booking_form'] = "booking data" in body_text.lower() or "foglalasi-adatok" in page_text
         diagnostic_info['on_date_selection'] = "select a date" in body_text.lower() or "idopontvalasztas" in page_text
@@ -219,6 +225,14 @@ def check_appointment_availability(driver, location=None):
         _, country = get_ip_and_country()
         send_healthcheck_slot_busy(country, location=location)
         return (False, None, diagnostic_info)  # No appointments available
+    elif diagnostic_info.get('form_reset_detected'):
+        print("⚠️  FORM WAS RESET - NO SLOTS (False Positive Detected) ⚠️")
+        print("  Page is back at initial form state")
+        print("="*60)
+        # Send healthcheck notification for slot busy
+        _, country = get_ip_and_country()
+        send_healthcheck_slot_busy(country, location=location)
+        return (False, None, diagnostic_info)  # No appointments available - form reset
     else:
         current_url = driver.current_url
         print("✅ THERE ARE FREE SLOTS!!! GO BY LINK:")

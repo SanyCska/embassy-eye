@@ -275,71 +275,8 @@ def fill_booking_form(location="subotica"):
             except Exception as e:
                 print(f"  Warning: Failed to log slot statistic: {e}")
             
-            # Save HTML only if it's not a captcha or email verification case
-            if special_case not in ("captcha_required", "email_verification"):
-                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                html_path = Path("screenshots") / f"slots_found_{timestamp}.html"
-                try:
-                    html_path.parent.mkdir(parents=True, exist_ok=True)
-                    with html_path.open("w", encoding="utf-8") as f:
-                        f.write(driver.page_source)
-                    print(f"  Saved page HTML to {html_path}")
-                    
-                    # Build diagnostic message
-                    diag_msg_parts = [
-                        f"✅ HTML saved successfully",
-                        f"",
-                        f"File: {html_path}",
-                        f"Reason: Slots found!",
-                        f""
-                    ]
-                    
-                    # Add diagnostic information
-                    if diagnostic_info:
-                        diag_msg_parts.append("📊 Diagnostic Info:")
-                        if diagnostic_info.get('url'):
-                            diag_msg_parts.append(f"URL: {diagnostic_info['url']}")
-                        if diagnostic_info.get('title'):
-                            diag_msg_parts.append(f"Page Title: {diagnostic_info['title']}")
-                        if 'alert_found' in diagnostic_info:
-                            diag_msg_parts.append(f"Alert Element: {'Found' if diagnostic_info['alert_found'] else 'Not Found'}")
-                            if diagnostic_info.get('alert_text'):
-                                alert_snippet = diagnostic_info['alert_text'][:150]
-                                diag_msg_parts.append(f"Alert Text: {alert_snippet}...")
-                        if 'modal_found' in diagnostic_info:
-                            diag_msg_parts.append(f"No-Slots Modal: {'Found' if diagnostic_info['modal_found'] else 'Not Found'}")
-                        if 'on_booking_form' in diagnostic_info:
-                            diag_msg_parts.append(f"On Booking Form: {diagnostic_info['on_booking_form']}")
-                        if 'on_date_selection' in diagnostic_info:
-                            diag_msg_parts.append(f"On Date Selection: {diagnostic_info['on_date_selection']}")
-                        if 'select_date_button_found' in diagnostic_info:
-                            if diagnostic_info['select_date_button_found']:
-                                button_status = "Disabled" if diagnostic_info.get('select_date_button_disabled') else "Enabled"
-                                button_text = diagnostic_info.get('select_date_button_text', 'N/A')
-                                diag_msg_parts.append(f"Select Date Button: {button_status} (text: '{button_text}')")
-                            else:
-                                diag_msg_parts.append(f"Select Date Button: Not Found")
-                        if 'page_contains_no_slots' in diagnostic_info:
-                            diag_msg_parts.append(f"Page Contains 'No Slots': {diagnostic_info['page_contains_no_slots']}")
-                        if diagnostic_info.get('page_text_snippet'):
-                            text_snippet = diagnostic_info['page_text_snippet'][:200]
-                            diag_msg_parts.append(f"Page Text Snippet: {text_snippet}...")
-                    
-                    diag_message = "\n".join(diag_msg_parts)
-                    send_telegram_message(diag_message)
-                except PermissionError as html_err:
-                    error_msg = f"❌ Failed to save HTML: Permission denied\n\nFile: {html_path}\nError: {html_err}\n\nThis is not critical, script continues..."
-                    print(f"  Warning: Permission denied saving page HTML: {html_err}")
-                    print("  This is not critical, continuing...")
-                    send_telegram_message(error_msg)
-                except Exception as html_err:
-                    error_msg = f"❌ Failed to save HTML\n\nFile: {html_path}\nError: {html_err}\n\nThis is not critical, script continues..."
-                    print(f"  Warning: Failed to save page HTML: {html_err}")
-                    print("  This is not critical, continuing...")
-                    send_telegram_message(error_msg)
-            else:
-                case_name = "captcha" if special_case == "captcha_required" else "email verification"
-                print(f"  Skipping HTML save ({case_name} case)")
+            # HTML saving disabled for Hungary scraper
+            print("  Note: HTML saving disabled for Hungary scraper")
             
             if special_case in ("captcha_required", "email_verification"):
                 # Send notification without screenshot for special cases
@@ -618,72 +555,8 @@ def _run_location_check(driver, location):
             except Exception as e:
                 print(f"  Warning: Failed to log slot statistic: {e}")
             
-            # Save HTML only if it's not a captcha or email verification case
-            if special_case not in ("captcha_required", "email_verification"):
-                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                html_path = Path("screenshots") / f"slots_found_{location}_{timestamp}.html"
-                try:
-                    html_path.parent.mkdir(parents=True, exist_ok=True)
-                    with html_path.open("w", encoding="utf-8") as f:
-                        f.write(driver.page_source)
-                    print(f"  Saved page HTML to {html_path}")
-                    
-                    # Build diagnostic message
-                    diag_msg_parts = [
-                        f"✅ HTML saved successfully",
-                        f"",
-                        f"File: {html_path}",
-                        f"Location: {location_display}",
-                        f"Reason: Slots found!",
-                        f""
-                    ]
-                    
-                    # Add diagnostic information
-                    if diagnostic_info:
-                        diag_msg_parts.append("📊 Diagnostic Info:")
-                        if diagnostic_info.get('url'):
-                            diag_msg_parts.append(f"URL: {diagnostic_info['url']}")
-                        if diagnostic_info.get('title'):
-                            diag_msg_parts.append(f"Page Title: {diagnostic_info['title']}")
-                        if 'alert_found' in diagnostic_info:
-                            diag_msg_parts.append(f"Alert Element: {'Found' if diagnostic_info['alert_found'] else 'Not Found'}")
-                            if diagnostic_info.get('alert_text'):
-                                alert_snippet = diagnostic_info['alert_text'][:150]
-                                diag_msg_parts.append(f"Alert Text: {alert_snippet}...")
-                        if 'modal_found' in diagnostic_info:
-                            diag_msg_parts.append(f"No-Slots Modal: {'Found' if diagnostic_info['modal_found'] else 'Not Found'}")
-                        if 'on_booking_form' in diagnostic_info:
-                            diag_msg_parts.append(f"On Booking Form: {diagnostic_info['on_booking_form']}")
-                        if 'on_date_selection' in diagnostic_info:
-                            diag_msg_parts.append(f"On Date Selection: {diagnostic_info['on_date_selection']}")
-                        if 'select_date_button_found' in diagnostic_info:
-                            if diagnostic_info['select_date_button_found']:
-                                button_status = "Disabled" if diagnostic_info.get('select_date_button_disabled') else "Enabled"
-                                button_text = diagnostic_info.get('select_date_button_text', 'N/A')
-                                diag_msg_parts.append(f"Select Date Button: {button_status} (text: '{button_text}')")
-                            else:
-                                diag_msg_parts.append(f"Select Date Button: Not Found")
-                        if 'page_contains_no_slots' in diagnostic_info:
-                            diag_msg_parts.append(f"Page Contains 'No Slots': {diagnostic_info['page_contains_no_slots']}")
-                        if diagnostic_info.get('page_text_snippet'):
-                            text_snippet = diagnostic_info['page_text_snippet'][:200]
-                            diag_msg_parts.append(f"Page Text Snippet: {text_snippet}...")
-                    
-                    diag_message = "\n".join(diag_msg_parts)
-                    send_telegram_message(diag_message)
-                except PermissionError as html_err:
-                    error_msg = f"❌ Failed to save HTML: Permission denied\n\nFile: {html_path}\nError: {html_err}\n\nThis is not critical, script continues..."
-                    print(f"  Warning: Permission denied saving page HTML: {html_err}")
-                    print("  This is not critical, continuing...")
-                    send_telegram_message(error_msg)
-                except Exception as html_err:
-                    error_msg = f"❌ Failed to save HTML\n\nFile: {html_path}\nError: {html_err}\n\nThis is not critical, script continues..."
-                    print(f"  Warning: Failed to save page HTML: {html_err}")
-                    print("  This is not critical, continuing...")
-                    send_telegram_message(error_msg)
-            else:
-                case_name = "captcha" if special_case == "captcha_required" else "email verification"
-                print(f"  Skipping HTML save ({case_name} case)")
+            # HTML saving disabled for Hungary scraper
+            print("  Note: HTML saving disabled for Hungary scraper")
             
             if special_case in ("captcha_required", "email_verification"):
                 # Send notification without screenshot for special cases
